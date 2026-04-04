@@ -18,6 +18,7 @@ A **locally runnable version** repaired from the leaked Claude Code source, with
 - [Environment Variables](#environment-variables)
 - [Fallback Mode](#fallback-mode)
 - [Computer Use Desktop Control](#computer-use-desktop-control)
+- [Memory System](#memory-system)
 - [FAQ](#faq)
 - [Fixes Compared with the Original Leaked Source](#fixes-compared-with-the-original-leaked-source)
 - [Project Structure](#project-structure)
@@ -32,6 +33,7 @@ A **locally runnable version** repaired from the leaked Claude Code source, with
 - MCP server, plugin, and Skills support
 - Custom API endpoint and model support ([Third-Party Models Guide](docs/third-party-models.en.md))
 - **Computer Use desktop control** (screenshots, mouse, keyboard, app management) — [Guide](docs/computer-use.en.md)
+- **Memory System** (cross-session persistent memory with auto-extraction and smart retrieval) — [Usage Guide](docs/memory/01-usage-guide.md) | [Implementation](docs/memory/02-implementation.md)
 - Fallback Recovery CLI mode
 
 > **Computer Use Note**: This project includes a **modified version of Computer Use**. The official implementation relies on Anthropic's private native modules. We replaced the entire underlying operation layer with a Python bridge (`pyautogui` + `mss` + `pyobjc`), enabling anyone to use Computer Use on macOS. See the [Computer Use Guide](docs/computer-use.en.md) for details.
@@ -232,6 +234,29 @@ This project enables and modifies Claude Code's Computer Use feature (internal c
 ```
 
 For supported platforms, technical architecture, and approaches we tried, see: **[Computer Use Guide](docs/computer-use.en.md)**
+
+---
+
+## Memory System
+
+Claude Code includes a **file-based persistent memory system** that accumulates understanding of users and projects across sessions. Core principle: only remember what cannot be inferred from the code.
+
+**Four memory types**:
+
+| Type | Purpose | Example |
+|------|---------|---------|
+| **User** | Role, skills, preferences | "Deep Go expertise, new to React" |
+| **Feedback** | Corrections or confirmations of Claude's approach | "Don't mock the database in tests" |
+| **Project** | Project context not derivable from code | "Merge freeze starts Thursday" |
+| **Reference** | Pointers to external systems | "Pipeline bugs tracked in Linear INGEST" |
+
+**Core capabilities**:
+
+- **Auto-extraction**: After each conversation, a background forked agent automatically analyzes and saves noteworthy information
+- **Smart retrieval**: When the user asks a question, a Sonnet model selects the most relevant memories (up to 5) to inject into context
+- **Freshness management**: Memories older than 1 day carry staleness warnings and are verified before citation
+
+Documentation: **[Usage Guide](docs/memory/01-usage-guide.md)** | **[Implementation Details](docs/memory/02-implementation.md)**
 
 ---
 

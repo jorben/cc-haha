@@ -18,6 +18,7 @@
 - [环境变量说明](#环境变量说明)
 - [降级模式](#降级模式)
 - [Computer Use 桌面控制](#computer-use-桌面控制)
+- [记忆系统](#记忆系统)
 - [常见问题](#常见问题)
 - [相对于原始泄露源码的修复](#相对于原始泄露源码的修复)
 - [项目结构](#项目结构)
@@ -32,6 +33,7 @@
 - 支持 MCP 服务器、插件、Skills
 - 支持自定义 API 端点和模型（[第三方模型使用指南](docs/third-party-models.md)）
 - **Computer Use 桌面控制**（截屏、鼠标、键盘、应用管理）— [使用指南](docs/computer-use.md)
+- **记忆系统**（跨会话持久化记忆，自动提取 + 智能检索）— [使用指南](docs/memory/01-usage-guide.md) | [实现原理](docs/memory/02-implementation.md)
 - 降级 Recovery CLI 模式
 
 > **Computer Use 说明**：本项目包含**魔改版的 Computer Use** 功能。官方实现依赖 Anthropic 私有原生模块，我们替换了整个底层操作层，使用 Python bridge（`pyautogui` + `mss` + `pyobjc`）实现，使得任何人都可以在 macOS 上使用。详见 [Computer Use 功能指南](docs/computer-use.md)。
@@ -232,6 +234,29 @@ CLAUDE_CODE_FORCE_RECOVERY_CLI=1 ./bin/claude-haha
 ```
 
 详细说明、支持的设备列表、技术架构和尝试过的方案请参考：**[Computer Use 功能指南](docs/computer-use.md)**
+
+---
+
+## 记忆系统
+
+Claude Code 内置了一套**基于文件的持久化记忆系统**，能够跨会话积累对用户和项目的理解。核心理念：只记住无法从代码中推断出来的东西。
+
+**四种记忆类型**：
+
+| 类型 | 用途 | 示例 |
+|------|------|------|
+| **User** | 用户角色、技能、偏好 | "深厚 Go 经验，React 新手" |
+| **Feedback** | 对 Claude 工作方式的纠正或肯定 | "不要 mock 数据库" |
+| **Project** | 无法从代码推导的项目上下文 | "周四后冻结非关键合并" |
+| **Reference** | 外部系统的指针 | "Bug 追踪在 Linear INGEST 项目" |
+
+**核心能力**：
+
+- **自动提取**：每次对话结束后，后台分叉代理自动分析并保存值得记住的信息
+- **智能检索**：用户提问时，Sonnet 模型从所有记忆中选择最相关的（最多 5 个）注入上下文
+- **新鲜度管理**：超过 1 天的记忆附带陈旧警告，引用前自动验证
+
+详细文档：**[使用指南](docs/memory/01-usage-guide.md)** | **[实现原理](docs/memory/02-implementation.md)**
 
 ---
 
