@@ -4,6 +4,7 @@ import type { LocalJSXCommandCall } from '../../types/command.js'
 import {
   getCompanion,
   roll,
+  rollWithSeed,
   companionUserId,
 } from '../../buddy/companion.js'
 import { renderSprite } from '../../buddy/sprites.js'
@@ -73,8 +74,9 @@ function CompanionCard({
         )
         return
       }
-      // Hatch a new companion with a generated name
-      const { bones } = roll(companionUserId())
+      // Hatch a new companion with a generated name and random seed
+      const appearanceSeed = `hatch:${Date.now()}:${Math.random().toString(36).slice(2)}`
+      const { bones } = rollWithSeed(appearanceSeed)
       const adjectives = [
         'Bright', 'Cozy', 'Swift', 'Calm', 'Wise', 'Bold',
         'Fuzzy', 'Lucky', 'Snappy', 'Quirky',
@@ -90,6 +92,7 @@ function CompanionCard({
         name,
         personality: `A ${bones.rarity} ${bones.species} who loves debugging and hanging out.`,
         hatchedAt: Date.now(),
+        appearanceSeed,
       }
       saveGlobalConfig(c => ({ ...c, companion: soul }))
       onDone(
