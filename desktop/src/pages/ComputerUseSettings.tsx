@@ -3,6 +3,10 @@ import { computerUseApi, type ComputerUseStatus, type SetupResult, type Installe
 import { useTranslation } from '../i18n'
 
 type CheckState = 'loading' | 'ready' | 'error'
+const PYTHON_DOWNLOAD_URLS: Record<string, string> = {
+  darwin: 'https://www.python.org/downloads/macos/',
+  win32: 'https://www.python.org/downloads/windows/',
+}
 
 function StatusIcon({ ok }: { ok: boolean | null }) {
   if (ok === null) {
@@ -29,6 +33,15 @@ function StatusRow({ label, ok, detail }: { label: string; ok: boolean | null; d
 
 async function openSystemSettings(pane: 'Privacy_ScreenCapture' | 'Privacy_Accessibility') {
   await computerUseApi.openSettings(pane)
+}
+
+async function openExternalUrl(url: string) {
+  try {
+    const { open } = await import('@tauri-apps/plugin-shell')
+    await open(url)
+  } catch {
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
 }
 
 export function ComputerUseSettings() {
@@ -153,6 +166,9 @@ export function ComputerUseSettings() {
   const accessibilityNeedsAttention = status?.permissions.accessibility === false
   const screenRecordingNeedsAttention = status?.permissions.screenRecording === false
   const screenRecordingReady = status ? status.permissions.screenRecording !== false : null
+  const pythonDownloadUrl = status
+    ? PYTHON_DOWNLOAD_URLS[status.platform] ?? 'https://www.python.org/downloads/'
+    : 'https://www.python.org/downloads/'
 
   // Filter apps by search query
   const filteredApps = useMemo(() => {
@@ -297,6 +313,15 @@ export function ComputerUseSettings() {
 
           {/* Action buttons */}
           <div className="flex gap-3">
+            {!status.python.installed && (
+              <button
+                onClick={() => openExternalUrl(pythonDownloadUrl)}
+                className="flex items-center gap-2 px-5 py-2.5 bg-[var(--color-brand)] text-white text-sm font-semibold rounded-lg hover:opacity-90 transition-opacity"
+              >
+                <span className="material-symbols-outlined text-[18px]">open_in_new</span>
+                {t('settings.computerUse.downloadPython')}
+              </button>
+            )}
             {!envReady && status.python.installed && (
               <button
                 onClick={handleSetup}

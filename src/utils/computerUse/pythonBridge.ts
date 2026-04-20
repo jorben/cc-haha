@@ -28,6 +28,15 @@ const helperPath = path.join(runtimeStateRoot, helperFileName)
 
 let bootstrapPromise: Promise<void> | undefined
 
+function getPythonCommandEnv(): NodeJS.ProcessEnv | undefined {
+  if (!isWindows) return undefined
+  return {
+    ...process.env,
+    PYTHONIOENCODING: 'utf-8',
+    PYTHONUTF8: '1',
+  }
+}
+
 function pythonBinPath(): string {
   return isWindows
     ? path.join(venvRoot, 'Scripts', 'python.exe')
@@ -131,7 +140,7 @@ export async function callPythonHelper<T>(command: string, payload: Record<strin
   const { code, stdout, stderr } = await execFileNoThrow(
     pythonBinPath(),
     [helperPath, command, '--payload', JSON.stringify(payload)],
-    { useCwd: false },
+    { useCwd: false, env: getPythonCommandEnv() },
   )
 
   if (code !== 0 && !stdout.trim()) {

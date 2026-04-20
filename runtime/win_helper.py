@@ -25,6 +25,15 @@ os.environ.setdefault("PYAUTOGUI_HIDE_SUPPORT_PROMPT", "1")
 
 import pyautogui  # noqa: E402
 
+# The desktop app decodes helper stdout as UTF-8. On Windows, redirected Python
+# stdout defaults to the active ANSI code page (for example GBK), which mangles
+# localized app names from the registry. Force UTF-8 at process start so JSON
+# responses stay stable regardless of the user's system locale.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="strict")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 pyautogui.FAILSAFE = False
 pyautogui.PAUSE = 0
 
@@ -311,13 +320,24 @@ def installed_apps() -> list[dict[str, Any]]:
                     display_icon = winreg.QueryValueEx(app_key, "DisplayIcon")[0]
                 except OSError:
                     display_icon = ""
-                # Use registry key name as bundleId equivalent
+                normalized_icon = str(display_icon).split(",")[0].strip().strip('"')
+                normalized_install_location = str(install_location).strip().strip('"')
+
                 bundle_id = name
+                for candidate in (normalized_icon, normalized_install_location):
+                    if not candidate:
+                        continue
+                    candidate_path = Path(candidate)
+                    if candidate_path.suffix.lower() == ".exe":
+                        bundle_id = candidate_path.stem
+                        break
+
+                app_path = normalized_icon or normalized_install_location or ""
                 if bundle_id not in results:
                     results[bundle_id] = {
                         "bundleId": bundle_id,
                         "displayName": str(display_name),
-                        "path": str(install_location or display_icon or ""),
+                        "path": app_path,
                     }
                 winreg.CloseKey(app_key)
         finally:
@@ -469,17 +489,43 @@ def open_app(bundle_id: str) -> None:
     for hive, sub_key in reg_paths:
         try:
             key = winreg.OpenKey(hive, sub_key)
-            app_key = winreg.OpenKey(key, bundle_id)
-            try:
-                exe_path = winreg.QueryValueEx(app_key, "DisplayIcon")[0]
-                if exe_path and "," in exe_path:
-                    exe_path = exe_path.split(",")[0]
-            except OSError:
+            i = 0
+            while True:
                 try:
-                    exe_path = winreg.QueryValueEx(app_key, "InstallLocation")[0]
+                    name = winreg.EnumKey(key, i)
+                    i += 1
                 except OSError:
-                    pass
-            winreg.CloseKey(app_key)
+                    break
+                try:
+                    app_key = winreg.OpenKey(key, name)
+                except OSError:
+                    continue
+                try:
+                    display_icon = winreg.QueryValueEx(app_key, "DisplayIcon")[0]
+                except OSError:
+                    display_icon = ""
+                try:
+                    install_location = winreg.QueryValueEx(app_key, "InstallLocation")[0]
+                except OSError:
+                    install_location = ""
+
+                normalized_icon = str(display_icon).split(",")[0].strip().strip('"')
+                normalized_install_location = str(install_location).strip().strip('"')
+
+                derived_bundle_id = name
+                for candidate in (normalized_icon, normalized_install_location):
+                    if not candidate:
+                        continue
+                    candidate_path = Path(candidate)
+                    if candidate_path.suffix.lower() == ".exe":
+                        derived_bundle_id = candidate_path.stem
+                        break
+
+                if name == bundle_id or derived_bundle_id == bundle_id:
+                    exe_path = normalized_icon or normalized_install_location or None
+                    winreg.CloseKey(app_key)
+                    break
+                winreg.CloseKey(app_key)
             winreg.CloseKey(key)
             if exe_path:
                 break

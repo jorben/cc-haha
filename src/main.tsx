@@ -1605,7 +1605,7 @@ async function run(): Promise<CommanderCommand> {
     // `type: 'stdio'`. An enterprise-config ant with the GB gate on would
     // otherwise process.exit(1). Chrome has the same latent issue but has
     // shipped without incident; chicago places itself correctly.
-    if (getPlatform() === 'macos') {
+    if (process.platform === 'darwin' || process.platform === 'win32') {
       try {
         const {
           getChicagoEnabled

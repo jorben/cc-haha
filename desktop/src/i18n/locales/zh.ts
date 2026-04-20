@@ -274,6 +274,7 @@ export const zh: Record<TranslationKey, string> = {
   'settings.computerUse.setupSuccess': '环境安装完成！',
   'settings.computerUse.setupFail': '安装失败',
   'settings.computerUse.allReady': '所有检查通过，Computer Use 已就绪。',
+  'settings.computerUse.downloadPython': '下载 Python 3',
   'settings.computerUse.recheckBtn': '重新检测',
   'settings.computerUse.requirementsLabel': '需要的 Python 包',
   'settings.computerUse.appsTitle': '已授权应用',

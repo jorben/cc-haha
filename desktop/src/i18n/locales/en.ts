@@ -272,6 +272,7 @@ export const en = {
   'settings.computerUse.setupSuccess': 'Environment setup complete!',
   'settings.computerUse.setupFail': 'Setup failed',
   'settings.computerUse.allReady': 'All checks passed. Computer Use is ready.',
+  'settings.computerUse.downloadPython': 'Download Python 3',
   'settings.computerUse.recheckBtn': 'Recheck Status',
   'settings.computerUse.requirementsLabel': 'Required packages',
   'settings.computerUse.appsTitle': 'Authorized Apps',

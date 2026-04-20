@@ -51,6 +51,19 @@ describe('MarkdownRenderer', () => {
     expect(screen.getByText('Body copy.')).toBeInTheDocument()
   })
 
+  it('uses semantic code colors for inline code so both themes stay readable', () => {
+    const { container } = render(
+      <MarkdownRenderer content={'Use `claude-sonnet-4-6` for balanced speed.'} />,
+    )
+
+    const root = container.firstChild as HTMLDivElement
+    expect(root).toBeInTheDocument()
+    expect(root.className).toContain('prose-code:text-[var(--color-code-fg)]')
+    expect(root.className).toContain('prose-code:bg-[var(--color-code-bg)]')
+    expect(root.className).not.toContain('prose-code:text-[var(--color-primary-fixed)]')
+    expect(screen.getByText('claude-sonnet-4-6')).toBeInTheDocument()
+  })
+
   it('renders mermaid fenced blocks with the Mermaid renderer', () => {
     render(<MarkdownRenderer content={'```mermaid\ngraph TB\nA-->B\n```'} />)
 

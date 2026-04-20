@@ -2431,13 +2431,18 @@ async function handleType(
   // §6 item 3 — clipboard-paste fast path. On macOS we also prefer the
   // clipboard path for ordinary text when clipboardWrite is granted, because
   // IME/input-source state can corrupt keystroke-by-keystroke typing even for
-  // plain ASCII. The save/restore + read-back-verify lives in the EXECUTOR,
-  // not here. Here we just route.
+  // plain ASCII. On Windows, non-ASCII text (Chinese, Japanese, emoji, etc.)
+  // is much more reliable through paste than through synthetic key events,
+  // which otherwise go through the active IME and can land in the wrong field
+  // or composition state. The save/restore lives in the EXECUTOR, not here.
   const hasNonControlText = /[^\r\n\t]/u.test(text);
+  const hasNonAsciiText = /[^\u0000-\u007f]/u.test(text);
   const viaClipboard =
     (text.includes("\n") ||
       (adapter.executor.capabilities.platform === "darwin" &&
-        hasNonControlText)) &&
+        hasNonControlText) ||
+      (adapter.executor.capabilities.platform === "win32" &&
+        hasNonAsciiText)) &&
     overrides.grantFlags.clipboardWrite &&
     subGates.clipboardPasteMultiline;
 

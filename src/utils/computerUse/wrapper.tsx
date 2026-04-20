@@ -27,6 +27,7 @@ import { registerEscHotkey } from './escHotkey.js';
 import { getChicagoCoordinateMode } from './gates.js';
 import { getComputerUseHostAdapter } from './hostAdapter.js';
 import { getComputerUseMCPRenderingOverrides } from './toolRendering.js';
+import { resolveStoredComputerUseConfig } from './preauthorizedConfig.js';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
@@ -269,6 +270,13 @@ async function runDesktopPermissionDialog(
  * immediately — no runtime permission dialog needed.
  */
 async function loadPreAuthorizedApps(): Promise<void> {
+  let config:
+    | {
+        authorizedApps?: { bundleId: string; displayName: string }[]
+        grantFlags?: { clipboardRead?: boolean; clipboardWrite?: boolean; systemKeyCombos?: boolean }
+      }
+    | undefined
+
   try {
     const configPath = join(
       process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'),
@@ -276,46 +284,57 @@ async function loadPreAuthorizedApps(): Promise<void> {
       'computer-use-config.json',
     )
     const raw = await readFile(configPath, 'utf8')
-    const config = JSON.parse(raw) as {
-      authorizedApps?: { bundleId: string; displayName: string }[]
-      grantFlags?: { clipboardRead?: boolean; clipboardWrite?: boolean; systemKeyCombos?: boolean }
-    }
-
-    if (!config.authorizedApps?.length) return
-
-    const apps = config.authorizedApps.map(a => ({
-      bundleId: a.bundleId,
-      displayName: a.displayName,
-      grantedAt: Date.now(),
-      tier: 'full' as const,
-    }))
-    const flags = {
-      ...DEFAULT_GRANT_FLAGS,
-      ...(config.grantFlags ?? {}),
-    }
-
-    // Inject into appState so getAllowedApps() returns them.
-    // Merge with existing allowedApps (from permission dialog) instead of replacing.
-    if (currentToolUseContext) {
-      currentToolUseContext.setAppState(prev => {
-        const existing = prev.computerUseMcpState?.allowedApps ?? []
-        const existingIds = new Set(existing.map(a => a.bundleId))
-        const merged = [...existing, ...apps.filter(a => !existingIds.has(a.bundleId))]
-        return {
-          ...prev,
-          computerUseMcpState: {
-            ...prev.computerUseMcpState,
-            allowedApps: merged,
-            grantFlags: flags,
-          },
-        }
-      })
-    }
-
-    logForDebugging(`[Computer Use] Loaded ${apps.length} pre-authorized apps from config`)
+    config = JSON.parse(raw) as typeof config
   } catch {
-    // Config doesn't exist or is invalid — no pre-authorized apps
+    // Config doesn't exist yet — still honor desktop defaults for grant flags.
   }
+
+  if (!currentToolUseContext) {
+    return
+  }
+
+  const resolved = resolveStoredComputerUseConfig(config)
+  const apps = resolved.authorizedApps.map(a => ({
+    bundleId: a.bundleId,
+    displayName: a.displayName,
+    grantedAt: Date.now(),
+    tier: 'full' as const,
+  }))
+  const flags = {
+    ...DEFAULT_GRANT_FLAGS,
+    ...resolved.grantFlags,
+  }
+
+  // Inject into appState so getAllowedApps()/getGrantFlags() return persisted
+  // desktop settings immediately, even when no apps are pre-authorized yet.
+  currentToolUseContext.setAppState(prev => {
+    const existing = prev.computerUseMcpState?.allowedApps ?? []
+    const existingIds = new Set(existing.map(a => a.bundleId))
+    const merged = [...existing, ...apps.filter(a => !existingIds.has(a.bundleId))]
+    const currentFlags = prev.computerUseMcpState?.grantFlags
+    const sameFlags =
+      currentFlags?.clipboardRead === flags.clipboardRead &&
+      currentFlags?.clipboardWrite === flags.clipboardWrite &&
+      currentFlags?.systemKeyCombos === flags.systemKeyCombos
+    const sameApps = existing.length === merged.length
+
+    if (sameFlags && sameApps) {
+      return prev
+    }
+
+    return {
+      ...prev,
+      computerUseMcpState: {
+        ...prev.computerUseMcpState,
+        allowedApps: merged,
+        grantFlags: flags,
+      },
+    }
+  })
+
+  logForDebugging(
+    `[Computer Use] Loaded ${apps.length} pre-authorized apps and grant flags from config`,
+  )
 }
 
 let preAuthLoaded = false

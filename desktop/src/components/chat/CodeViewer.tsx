@@ -45,6 +45,8 @@ const warmCodeTheme = {
   ],
 }
 
+const CODE_AREA_PADDING = '0.5rem 12px'
+
 /**
  * Wraps ShikiHighlighter with a plain-text fallback so the code area
  * is never empty while the async WASM / language-grammar load is in-flight,
@@ -74,13 +76,13 @@ function CodeArea({ code, language, showLineNumbers }: { code: string; language?
   }, [code, language])
 
   return (
-    <div ref={containerRef} className="code-viewer-area max-h-[420px] overflow-auto bg-[var(--color-code-bg)]">
+    <div ref={containerRef} className="code-viewer-area relative max-h-[420px] overflow-auto bg-[var(--color-code-bg)]">
       {/* Plain-text fallback shown until Shiki finishes highlighting */}
       {!loaded && (
         <pre
           style={{
             margin: 0,
-            padding: '0.5rem 12px',
+            padding: CODE_AREA_PADDING,
             fontFamily: 'var(--font-mono)',
             fontSize: '12px',
             lineHeight: '1.45',
@@ -92,7 +94,20 @@ function CodeArea({ code, language, showLineNumbers }: { code: string; language?
           {code}
         </pre>
       )}
-      <div style={loaded ? undefined : { position: 'absolute', opacity: 0, pointerEvents: 'none' }}>
+      <div
+        data-code-viewer-content=""
+        style={
+          loaded
+            ? { padding: CODE_AREA_PADDING }
+            : {
+                position: 'absolute',
+                inset: 0,
+                opacity: 0,
+                pointerEvents: 'none',
+                padding: CODE_AREA_PADDING,
+              }
+        }
+      >
         <ShikiHighlighter
           language={language || 'text'}
           theme={warmCodeTheme}
@@ -101,7 +116,6 @@ function CodeArea({ code, language, showLineNumbers }: { code: string; language?
           addDefaultStyles={false}
           style={{
             margin: 0,
-            padding: '0.5rem 0',
             fontFamily: 'var(--font-mono)',
             fontSize: '12px',
             lineHeight: '1.45',

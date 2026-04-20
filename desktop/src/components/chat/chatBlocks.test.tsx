@@ -62,6 +62,19 @@ describe('chat blocks', () => {
     expect(container.textContent).not.toContain('file-a')
   })
 
+  it('shows a collapsed error summary for failed bash commands', () => {
+    const { container } = render(
+      <ToolCallBlock
+        toolName="Bash"
+        input={{ command: 'git show 5016bc0 --no-stat', description: 'Show full diff of latest commit' }}
+        result={{ content: 'fatal: unrecognized argument: --no-stat\nExit code 128', isError: true }}
+      />,
+    )
+
+    expect(container.textContent).toContain('Bash')
+    expect(container.textContent).toContain('fatal: unrecognized argument: --no-stat')
+  })
+
   it('expands tool errors so full Computer Use gate messages are readable', () => {
     const { container } = render(
       <ToolCallBlock

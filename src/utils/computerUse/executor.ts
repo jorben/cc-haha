@@ -2,7 +2,8 @@
  * CLI `ComputerExecutor` implementation — Python bridge variant.
  *
  * Replaces the native Swift/Rust modules with a Python subprocess bridge
- * (pyautogui + mss + pyobjc). See `pythonBridge.ts` and `runtime/mac_helper.py`.
+ * (pyautogui + mss + platform helpers). See `pythonBridge.ts` and
+ * `runtime/{mac,win}_helper.py`.
  */
 
 import type {
@@ -16,7 +17,11 @@ import type {
 } from '../../vendor/computer-use-mcp/index.js'
 import { API_RESIZE_PARAMS, targetImageSize } from '../../vendor/computer-use-mcp/index.js'
 import { sleep } from '../sleep.js'
-import { CLI_CU_CAPABILITIES, CLI_HOST_BUNDLE_ID } from './common.js'
+import {
+  CLI_HOST_BUNDLE_ID,
+  getCliComputerUseCapabilities,
+  isComputerUseSupportedPlatform,
+} from './common.js'
 import { callPythonHelper } from './pythonBridge.js'
 
 const SCREENSHOT_JPEG_QUALITY = 0.75
@@ -56,23 +61,48 @@ async function writeClipboardViaPbcopy(text: string): Promise<void> {
   await callPythonHelper('write_clipboard', { text })
 }
 
+async function readClipboard(): Promise<string> {
+  if (process.platform === 'win32') {
+    return callPythonHelper<string>('read_clipboard', {})
+  }
+
+  return readClipboardViaPbpaste()
+}
+
+async function writeClipboard(text: string): Promise<void> {
+  if (process.platform === 'win32') {
+    await callPythonHelper('write_clipboard', { text })
+    return
+  }
+
+  await writeClipboardViaPbcopy(text)
+}
+
 async function typeViaClipboard(text: string): Promise<void> {
   let saved: string | undefined
   try {
-    saved = await readClipboardViaPbpaste()
+    saved = await readClipboard()
   } catch {}
 
   try {
-    await writeClipboardViaPbcopy(text)
-    // Give NSPasteboard a beat before paste, then keep the new contents
-    // resident long enough for Electron/WebView fields to consume them.
-    await sleep(40)
-    await callPythonHelper('paste_clipboard', {})
-    await sleep(180)
+    await writeClipboard(text)
+    if (process.platform === 'darwin') {
+      // Give NSPasteboard a beat before paste, then keep the new contents
+      // resident long enough for Electron/WebView fields to consume them.
+      await sleep(40)
+      await callPythonHelper('paste_clipboard', {})
+      await sleep(180)
+    } else {
+      await callPythonHelper('key', {
+        keySequence: 'ctrl+v',
+        repeat: 1,
+      })
+      await sleep(100)
+    }
   } finally {
     if (typeof saved === 'string') {
       try {
-        await writeClipboardViaPbcopy(saved)
+        await writeClipboard(saved)
       } catch {}
     }
   }
@@ -82,21 +112,23 @@ export function createCliExecutor(_opts: {
   getMouseAnimationEnabled: () => boolean
   getHideBeforeActionEnabled: () => boolean
 }): ComputerExecutor {
-  if (process.platform !== 'darwin') {
-    throw new Error(`createCliExecutor called on ${process.platform}. Computer control is macOS-only.`)
+  if (!isComputerUseSupportedPlatform()) {
+    throw new Error(
+      `createCliExecutor called on ${process.platform}. Computer control is only supported on macOS and Windows.`,
+    )
   }
 
   return {
     capabilities: {
-      ...CLI_CU_CAPABILITIES,
+      ...getCliComputerUseCapabilities(),
       hostBundleId,
     },
 
-    async prepareForAction(): Promise<string[]> {
+    async prepareForAction(_allowlistBundleIds, _displayId): Promise<string[]> {
       return callPythonHelper('prepare_for_action', {})
     },
 
-    async previewHideSet() {
+    async previewHideSet(_allowlistBundleIds, _displayId) {
       return callPythonHelper('preview_hide_set', {})
     },
 
@@ -170,8 +202,8 @@ export function createCliExecutor(_opts: {
       await callPythonHelper('type', { text })
     },
 
-    readClipboard: readClipboardViaPbpaste,
-    writeClipboard: writeClipboardViaPbcopy,
+    readClipboard,
+    writeClipboard,
 
     async click(x, y, button, count, modifiers): Promise<void> {
       await callPythonHelper('click', { x, y, button, count, modifiers })
