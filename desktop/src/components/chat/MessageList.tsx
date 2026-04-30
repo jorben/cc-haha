@@ -21,6 +21,7 @@ import { CurrentTurnChangeCard } from './CurrentTurnChangeCard'
 import type { AgentTaskNotification, UIMessage } from '../../types/chat'
 import { Modal } from '../shared/Modal'
 import { Button } from '../shared/Button'
+import { ConfirmDialog } from '../shared/ConfirmDialog'
 
 type ToolCall = Extract<UIMessage, { type: 'tool_use' }>
 type ToolResult = Extract<UIMessage, { type: 'tool_result' }>
@@ -204,6 +205,7 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
   const [currentTurnError, setCurrentTurnError] = useState<string | null>(null)
   const [isLoadingCurrentTurnPreview, setIsLoadingCurrentTurnPreview] = useState(false)
   const [isUndoingCurrentTurn, setIsUndoingCurrentTurn] = useState(false)
+  const [currentTurnUndoConfirmOpen, setCurrentTurnUndoConfirmOpen] = useState(false)
 
   const updateAutoScrollState = useCallback(() => {
     const container = scrollContainerRef.current
@@ -438,6 +440,7 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
       })
 
       setCurrentTurnPreview(null)
+      setCurrentTurnUndoConfirmOpen(false)
     } catch (error) {
       const message =
         error instanceof ApiError
@@ -448,6 +451,7 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
             ? error.message
             : String(error)
       setCurrentTurnError(message)
+      setCurrentTurnUndoConfirmOpen(false)
     } finally {
       setIsUndoingCurrentTurn(false)
     }
@@ -545,13 +549,13 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
             error={currentTurnError}
             isUndoing={isUndoingCurrentTurn}
             onUndo={() => {
-              void handleUndoCurrentTurn()
+              setCurrentTurnUndoConfirmOpen(true)
             }}
           />
         )}
 
         {!currentTurnPreview && currentTurnError && (
-          <div className="mx-auto mb-5 max-w-[760px] rounded-[var(--radius-lg)] border border-[var(--color-error)]/25 bg-[var(--color-error-container)]/18 px-4 py-3 text-xs text-[var(--color-error)]">
+          <div className="mx-auto mb-5 w-full max-w-[860px] rounded-[var(--radius-lg)] border border-[var(--color-error)]/25 bg-[var(--color-error-container)]/18 px-4 py-3 text-xs text-[var(--color-error)]">
             {currentTurnError}
           </div>
         )}
@@ -671,6 +675,22 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
           )}
         </div>
       </Modal>
+
+      <ConfirmDialog
+        open={currentTurnUndoConfirmOpen}
+        onClose={() => {
+          if (!isUndoingCurrentTurn) {
+            setCurrentTurnUndoConfirmOpen(false)
+          }
+        }}
+        onConfirm={handleUndoCurrentTurn}
+        title={t('chat.turnChangesConfirmTitle')}
+        body={t('chat.turnChangesConfirmBody')}
+        confirmLabel={t('chat.turnChangesConfirmUndo')}
+        cancelLabel={t('common.cancel')}
+        confirmVariant="danger"
+        loading={isUndoingCurrentTurn}
+      />
     </div>
   )
 }

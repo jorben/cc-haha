@@ -1224,6 +1224,18 @@ export class SessionService {
     return this.resolveWorkDirFromEntries(entries, found.projectDir)
   }
 
+  async getSessionMessageCwd(
+    sessionId: string,
+    messageId: string,
+  ): Promise<string | null> {
+    const found = await this.findSessionFile(sessionId)
+    if (!found) return null
+
+    const entries = await this.readJsonlFile(found.filePath)
+    const entry = entries.find((candidate) => candidate.uuid === messageId)
+    return typeof entry?.cwd === 'string' && entry.cwd.trim() ? entry.cwd : null
+  }
+
   /**
    * Inspect how a session should be launched.
    * Placeholder desktop-created sessions have zero transcript messages.

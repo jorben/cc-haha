@@ -587,6 +587,86 @@ describe('WorkspacePanel', () => {
     expect(view.queryByTestId('workspace-code')).toBeNull()
   })
 
+  it('opens a context menu for preview tabs and closes tabs to the right', async () => {
+    await setWorkspaceState((state) => ({
+      ...state,
+      panelBySession: {
+        ...state.panelBySession,
+        'session-preview-menu': {
+          isOpen: true,
+          activeView: 'changed',
+        },
+      },
+      statusBySession: {
+        ...state.statusBySession,
+        'session-preview-menu': {
+          state: 'ok',
+          workDir: '/repo',
+          repoName: 'repo',
+          branch: 'main',
+          isGitRepo: true,
+          changedFiles: [],
+        },
+      },
+      previewTabsBySession: {
+        ...state.previewTabsBySession,
+        'session-preview-menu': [
+          {
+            id: 'file:src/App.jsx',
+            path: 'src/App.jsx',
+            kind: 'file',
+            title: 'App.jsx',
+            language: 'jsx',
+            content: 'app',
+            state: 'ok',
+            size: 3,
+          },
+          {
+            id: 'diff:vite.config.js',
+            path: 'vite.config.js',
+            kind: 'diff',
+            title: 'vite.config.js',
+            diff: '@@ -1 +1 @@',
+            state: 'ok',
+            size: 12,
+          },
+          {
+            id: 'file:src/index.css',
+            path: 'src/index.css',
+            kind: 'file',
+            title: 'index.css',
+            language: 'css',
+            content: 'body{}',
+            state: 'ok',
+            size: 6,
+          },
+        ],
+      },
+      activePreviewTabIdBySession: {
+        ...state.activePreviewTabIdBySession,
+        'session-preview-menu': 'diff:vite.config.js',
+      },
+    }))
+
+    const view = await renderPanel('session-preview-menu')
+
+    await act(() => {
+      fireEvent.contextMenu(view.getByRole('tab', { name: /vite\.config\.js/i }), {
+        clientX: 320,
+        clientY: 42,
+      })
+    })
+
+    await clickElement(view.getByRole('menuitem', { name: 'Close to the Right' }))
+
+    expect(useWorkspacePanelStore.getState().previewTabsBySession['session-preview-menu']).toMatchObject([
+      { id: 'file:src/App.jsx' },
+      { id: 'diff:vite.config.js' },
+    ])
+    expect(useWorkspacePanelStore.getState().activePreviewTabIdBySession['session-preview-menu']).toBe('diff:vite.config.js')
+    expect(view.queryByRole('tab', { name: /index\.css/i })).toBeNull()
+  })
+
   it('uses the localized view menu label', async () => {
     await setSettingsState({ ...settingsInitialState, locale: 'zh' })
     await setWorkspaceState((state) => ({

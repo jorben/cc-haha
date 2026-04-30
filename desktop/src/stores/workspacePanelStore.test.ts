@@ -301,6 +301,63 @@ describe('workspacePanelStore', () => {
     expect(useWorkspacePanelStore.getState().activePreviewTabIdBySession['session-close']).toBe('file:src/a.ts')
   })
 
+  it('closes preview tabs by context-menu scope', () => {
+    useWorkspacePanelStore.setState((state) => ({
+      ...state,
+      previewTabsBySession: {
+        ...state.previewTabsBySession,
+        'session-preview-scope': [
+          { id: 'file:a.ts', path: 'a.ts', kind: 'file', title: 'a.ts', state: 'ok', language: 'typescript', size: 1 },
+          { id: 'file:b.ts', path: 'b.ts', kind: 'file', title: 'b.ts', state: 'ok', language: 'typescript', size: 1 },
+          { id: 'file:c.ts', path: 'c.ts', kind: 'file', title: 'c.ts', state: 'ok', language: 'typescript', size: 1 },
+          { id: 'file:d.ts', path: 'd.ts', kind: 'file', title: 'd.ts', state: 'ok', language: 'typescript', size: 1 },
+        ],
+      },
+      activePreviewTabIdBySession: {
+        ...state.activePreviewTabIdBySession,
+        'session-preview-scope': 'file:d.ts',
+      },
+      loading: {
+        ...state.loading,
+        previewByTabId: {
+          ...state.loading.previewByTabId,
+          'session-preview-scope::file:c.ts': true,
+          'session-preview-scope::file:d.ts': true,
+        },
+      },
+      errors: {
+        ...state.errors,
+        previewByTabId: {
+          ...state.errors.previewByTabId,
+          'session-preview-scope::file:c.ts': 'loading',
+          'session-preview-scope::file:d.ts': 'loading',
+        },
+      },
+    }))
+
+    useWorkspacePanelStore.getState().closePreviewTabs('session-preview-scope', 'file:b.ts', 'right')
+
+    expect(useWorkspacePanelStore.getState().previewTabsBySession['session-preview-scope']).toMatchObject([
+      { id: 'file:a.ts' },
+      { id: 'file:b.ts' },
+    ])
+    expect(useWorkspacePanelStore.getState().activePreviewTabIdBySession['session-preview-scope']).toBe('file:b.ts')
+    expect(useWorkspacePanelStore.getState().loading.previewByTabId['session-preview-scope::file:c.ts']).toBeUndefined()
+    expect(useWorkspacePanelStore.getState().errors.previewByTabId['session-preview-scope::file:d.ts']).toBeUndefined()
+
+    useWorkspacePanelStore.getState().closePreviewTabs('session-preview-scope', 'file:b.ts', 'others')
+
+    expect(useWorkspacePanelStore.getState().previewTabsBySession['session-preview-scope']).toMatchObject([
+      { id: 'file:b.ts' },
+    ])
+    expect(useWorkspacePanelStore.getState().activePreviewTabIdBySession['session-preview-scope']).toBe('file:b.ts')
+
+    useWorkspacePanelStore.getState().closePreviewTabs('session-preview-scope', 'file:b.ts', 'all')
+
+    expect(useWorkspacePanelStore.getState().previewTabsBySession['session-preview-scope']).toBeUndefined()
+    expect(useWorkspacePanelStore.getState().activePreviewTabIdBySession['session-preview-scope']).toBeNull()
+  })
+
   it('ignores stale status responses for the same session', async () => {
     const first = deferred<{
       state: 'ok'

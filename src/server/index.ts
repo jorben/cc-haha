@@ -15,6 +15,7 @@ import { handleProxyRequest } from './proxy/handler.js'
 import { ProviderService } from './services/providerService.js'
 import { handleHahaOAuthCallback } from './api/haha-oauth.js'
 import { ensureDesktopCliLauncherInstalled } from './services/desktopCliLauncherService.js'
+import { enableConfigs } from '../utils/config.js'
 
 function readArgValue(flag: string): string | undefined {
   const args = process.argv.slice(2)
@@ -46,6 +47,7 @@ const PORT = SERVER_OPTIONS.port
 const HOST = SERVER_OPTIONS.host
 
 export function startServer(port = PORT, host = HOST) {
+  enableConfigs()
   ProviderService.setServerPort(port)
   const localConnectHost =
     host === '0.0.0.0' || host === '127.0.0.1' || host === 'localhost'

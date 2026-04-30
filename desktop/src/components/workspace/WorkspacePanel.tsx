@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Highlight, type PrismTheme } from 'prism-react-renderer'
+import { useEffect, useMemo, useState, type MouseEvent } from 'react'
+import { Highlight } from 'prism-react-renderer'
 import type {
   WorkspaceChangedFile,
   WorkspaceFileStatus,
@@ -10,10 +10,18 @@ import { useTranslation } from '../../i18n'
 import { useShallow } from 'zustand/react/shallow'
 import {
   useWorkspacePanelStore,
+  type WorkspacePreviewCloseScope,
   type WorkspacePreviewKind,
   type WorkspacePreviewTab,
 } from '../../stores/workspacePanelStore'
 import { MarkdownRenderer } from '../markdown/MarkdownRenderer'
+import {
+  getFileExtension,
+  normalizePrismLanguage,
+  WORKSPACE_PREVIEW_LINE_LIMIT,
+  WorkspaceDiffSurface,
+  workspacePrismTheme,
+} from './WorkspaceCodeSurface'
 
 type WorkspacePanelProps = {
   sessionId: string
@@ -71,44 +79,20 @@ const FILE_STATUS_META: Record<WorkspaceFileStatus, { label: string; className: 
 const EMPTY_TREE_BY_PATH: Record<string, WorkspaceTreeResult | undefined> = {}
 const EMPTY_PREVIEW_TABS: WorkspacePreviewTab[] = []
 const EMPTY_EXPANDED_PATHS: string[] = []
-const PREVIEW_LINE_LIMIT = 420
-
-const workspacePrismTheme: PrismTheme = {
-  plain: {
-    color: 'var(--color-code-fg)',
-    backgroundColor: 'transparent',
-  },
-  styles: [
-    { types: ['comment', 'prolog', 'doctype', 'cdata'], style: { color: 'var(--color-code-comment)', fontStyle: 'italic' } },
-    { types: ['string', 'attr-value', 'template-string'], style: { color: 'var(--color-code-string)' } },
-    { types: ['keyword', 'selector', 'important', 'atrule'], style: { color: 'var(--color-code-keyword)' } },
-    { types: ['function'], style: { color: 'var(--color-code-function)' } },
-    { types: ['tag'], style: { color: 'var(--color-code-keyword)' } },
-    { types: ['number', 'boolean'], style: { color: 'var(--color-code-number)' } },
-    { types: ['operator'], style: { color: 'var(--color-code-fg)' } },
-    { types: ['punctuation'], style: { color: 'var(--color-code-punctuation)' } },
-    { types: ['variable', 'parameter'], style: { color: 'var(--color-code-fg)' } },
-    { types: ['property', 'attr-name'], style: { color: 'var(--color-code-property)' } },
-    { types: ['builtin', 'class-name', 'constant', 'symbol'], style: { color: 'var(--color-code-type)' } },
-    { types: ['inserted'], style: { color: 'var(--color-code-inserted)' } },
-    { types: ['deleted'], style: { color: 'var(--color-code-deleted)' } },
-  ],
-}
-
 const FILE_BADGE_META: Record<string, { label: string; className: string }> = {
-  ts: { label: 'TS', className: 'bg-[#dff0ff] text-[#2b86c5]' },
-  tsx: { label: 'TSX', className: 'bg-[#dff0ff] text-[#2b86c5]' },
-  js: { label: 'JS', className: 'bg-[#fff3bf] text-[#8a6500]' },
-  jsx: { label: 'JSX', className: 'bg-[#fff3bf] text-[#8a6500]' },
-  json: { label: '{}', className: 'bg-[#eee9ff] text-[#6f4fb8]' },
-  md: { label: 'MD', className: 'bg-[#e9eef3] text-[#5e6872]' },
-  css: { label: 'CSS', className: 'bg-[#e4f2ff] text-[#246da6]' },
-  html: { label: 'H', className: 'bg-[#ffe7dc] text-[#b9552d]' },
-  png: { label: 'IMG', className: 'bg-[#e4f7ed] text-[#287747]' },
-  jpg: { label: 'IMG', className: 'bg-[#e4f7ed] text-[#287747]' },
-  jpeg: { label: 'IMG', className: 'bg-[#e4f7ed] text-[#287747]' },
-  gif: { label: 'IMG', className: 'bg-[#e4f7ed] text-[#287747]' },
-  svg: { label: 'SVG', className: 'bg-[#e4f7ed] text-[#287747]' },
+  ts: { label: 'TS', className: 'bg-[var(--color-secondary)]/14 text-[var(--color-secondary)]' },
+  tsx: { label: 'TSX', className: 'bg-[var(--color-secondary)]/14 text-[var(--color-secondary)]' },
+  js: { label: 'JS', className: 'bg-[var(--color-warning)]/16 text-[var(--color-warning)]' },
+  jsx: { label: 'JSX', className: 'bg-[var(--color-warning)]/16 text-[var(--color-warning)]' },
+  json: { label: '{}', className: 'bg-[var(--color-tertiary)]/14 text-[var(--color-tertiary)]' },
+  md: { label: 'MD', className: 'bg-[var(--color-text-tertiary)]/14 text-[var(--color-text-secondary)]' },
+  css: { label: 'CSS', className: 'bg-[var(--color-secondary)]/14 text-[var(--color-secondary)]' },
+  html: { label: 'H', className: 'bg-[var(--color-brand)]/14 text-[var(--color-brand)]' },
+  png: { label: 'IMG', className: 'bg-[var(--color-success)]/14 text-[var(--color-success)]' },
+  jpg: { label: 'IMG', className: 'bg-[var(--color-success)]/14 text-[var(--color-success)]' },
+  jpeg: { label: 'IMG', className: 'bg-[var(--color-success)]/14 text-[var(--color-success)]' },
+  gif: { label: 'IMG', className: 'bg-[var(--color-success)]/14 text-[var(--color-success)]' },
+  svg: { label: 'SVG', className: 'bg-[var(--color-success)]/14 text-[var(--color-success)]' },
 }
 
 function makeTreeStateKey(sessionId: string, path: string) {
@@ -136,45 +120,12 @@ function getPreviewKindLabel(
   return kind === 'diff' ? t('workspace.previewKind.diff') : t('workspace.previewKind.file')
 }
 
-function getFileExtension(name: string) {
-  const cleanName = name.split('/').pop() ?? name
-  const lastDot = cleanName.lastIndexOf('.')
-  if (lastDot <= 0 || lastDot === cleanName.length - 1) return ''
-  return cleanName.slice(lastDot + 1).toLowerCase()
-}
-
 function getFileBadgeMeta(name: string) {
   const extension = getFileExtension(name)
   return FILE_BADGE_META[extension] ?? {
     label: extension ? extension.slice(0, 3).toUpperCase() : 'TXT',
-    className: 'bg-[#eef0f2] text-[#747b83]',
+    className: 'bg-[var(--color-text-tertiary)]/12 text-[var(--color-text-secondary)]',
   }
-}
-
-function normalizePrismLanguage(language: string) {
-  const lower = language.toLowerCase()
-  const map: Record<string, string> = {
-    text: 'text',
-    typescript: 'typescript',
-    ts: 'typescript',
-    tsx: 'tsx',
-    javascript: 'javascript',
-    js: 'javascript',
-    jsx: 'jsx',
-    markdown: 'markdown',
-    md: 'markdown',
-    html: 'markup',
-    xml: 'markup',
-    shell: 'bash',
-    sh: 'bash',
-    zsh: 'bash',
-    diff: 'diff',
-  }
-  return map[lower] ?? lower
-}
-
-function getLanguageFromPath(path: string) {
-  return normalizePrismLanguage(getFileExtension(path) || 'text')
 }
 
 function isMarkdownPreview(tab: WorkspacePreviewTab) {
@@ -193,31 +144,6 @@ function FileTypeBadge({ name, subtle = false }: { name: string; subtle?: boolea
     >
       {meta.label}
     </span>
-  )
-}
-
-function InlineHighlightedCode({
-  value,
-  language,
-}: {
-  value: string
-  language: string
-}) {
-  return (
-    <Highlight
-      theme={workspacePrismTheme}
-      code={value}
-      language={normalizePrismLanguage(language)}
-    >
-      {({ tokens, getTokenProps }) => (
-        <>
-          {(tokens[0] ?? []).map((token, tokenIndex) => {
-            const { key: tokenKey, ...tokenProps } = getTokenProps({ token, key: tokenIndex })
-            return <span key={String(tokenKey)} {...tokenProps} />
-          })}
-        </>
-      )}
-    </Highlight>
   )
 }
 
@@ -316,7 +242,7 @@ function ToolbarIconButton({
       type="button"
       aria-label={label}
       onClick={onClick}
-      className="inline-flex h-8 w-8 items-center justify-center rounded-[9px] text-[#777c83] transition-colors hover:bg-[#f1f1f1] hover:text-[#272a2e] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0a96ff]/45"
+      className="inline-flex h-8 w-8 items-center justify-center rounded-[9px] text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]/35"
     >
       <span className="material-symbols-outlined text-[18px]">{icon}</span>
     </button>
@@ -333,22 +259,22 @@ function WorkspaceFilterInput({
   const t = useTranslation()
 
   return (
-    <div className="shrink-0 border-b border-[#ececec] px-3 py-2">
-      <label className="flex h-8 items-center gap-2 rounded-[9px] border border-[#e5e5e5] bg-white px-2.5 text-[#8b9096] transition-colors focus-within:border-[#0a96ff] focus-within:ring-2 focus-within:ring-[#0a96ff]/10">
+    <div className="shrink-0 border-b border-[var(--color-border)] px-3 py-2">
+      <label className="flex h-8 items-center gap-2 rounded-[9px] border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] px-2.5 text-[var(--color-text-tertiary)] transition-colors focus-within:border-[var(--color-border-focus)] focus-within:ring-2 focus-within:ring-[var(--color-brand)]/10">
         <span className="material-symbols-outlined shrink-0 text-[17px]">search</span>
         <input
           value={value}
           onChange={(event) => onChange(event.target.value)}
           aria-label={t('workspace.filterPlaceholder')}
           placeholder={t('workspace.filterPlaceholder')}
-          className="min-w-0 flex-1 bg-transparent text-[13px] text-[#26292d] outline-none placeholder:text-[#a0a4aa]"
+          className="min-w-0 flex-1 bg-transparent text-[13px] text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)]"
         />
         {value.length > 0 && (
           <button
             type="button"
             aria-label={t('workspace.clearFilter')}
             onClick={() => onChange('')}
-            className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-[5px] text-[#9ba0a6] transition-colors hover:bg-[#eeeeee] hover:text-[#30343a]"
+            className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-[5px] text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]"
           >
             <span className="material-symbols-outlined text-[13px]">close</span>
           </button>
@@ -373,12 +299,12 @@ function FileStatusBadge({ status }: { status: WorkspaceFileStatus }) {
 function CodeSurface({ value, language }: { value: string; language: string }) {
   const t = useTranslation()
   const lines = value.split('\n')
-  const visibleLines = lines.slice(0, PREVIEW_LINE_LIMIT)
+  const visibleLines = lines.slice(0, WORKSPACE_PREVIEW_LINE_LIMIT)
   const visibleCode = visibleLines.join('\n')
   const hiddenLineCount = Math.max(0, lines.length - visibleLines.length)
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto bg-[#fdfdfc]">
+    <div className="min-h-0 flex-1 overflow-auto bg-[var(--color-code-bg)]">
       <div className="relative min-w-max py-2">
         <Highlight
           theme={workspacePrismTheme}
@@ -398,9 +324,9 @@ function CodeSurface({ value, language }: { value: string; language: string }) {
                   <div
                     key={String(lineKey)}
                     {...lineProps}
-                    className="grid grid-cols-[48px_minmax(0,1fr)] gap-3 px-3 hover:bg-[#f4f4f3]"
+                    className="grid grid-cols-[48px_minmax(0,1fr)] gap-3 px-3 hover:bg-[var(--color-surface-hover)]"
                   >
-                    <span className="select-none text-right text-[11px] text-[#96999d]">
+                    <span className="select-none text-right text-[11px] text-[var(--color-text-tertiary)]">
                       {index + 1}
                     </span>
                     <span className="whitespace-pre pr-6">
@@ -416,8 +342,8 @@ function CodeSurface({ value, language }: { value: string; language: string }) {
           )}
         </Highlight>
         {hiddenLineCount > 0 && (
-          <div className="sticky bottom-0 border-t border-[#e7e7e7] bg-white/95 px-3 py-2 text-xs text-[var(--color-text-tertiary)] backdrop-blur">
-            {t('workspace.previewLineLimit', { count: PREVIEW_LINE_LIMIT })}
+          <div className="sticky bottom-0 border-t border-[var(--color-border)] bg-[var(--color-surface-glass)] px-3 py-2 text-xs text-[var(--color-text-tertiary)] backdrop-blur">
+            {t('workspace.previewLineLimit', { count: WORKSPACE_PREVIEW_LINE_LIMIT })}
           </div>
         )}
       </div>
@@ -427,93 +353,13 @@ function CodeSurface({ value, language }: { value: string; language: string }) {
 
 function MarkdownSurface({ value }: { value: string }) {
   return (
-    <div className="min-h-0 flex-1 overflow-auto bg-[#fdfdfc]">
+    <div className="min-h-0 flex-1 overflow-auto bg-[var(--color-surface)]">
       <div className="mx-auto w-full max-w-[860px] px-6 py-5">
         <MarkdownRenderer
           content={value}
           variant="document"
           className="workspace-markdown-preview prose-p:text-[14px] prose-p:leading-7 prose-h1:text-[24px] prose-h2:text-[18px] prose-h3:text-[15px] prose-code:text-[12px] prose-pre:my-4"
         />
-      </div>
-    </div>
-  )
-}
-
-function DiffSurface({ value, path }: { value: string; path: string }) {
-  const t = useTranslation()
-  const lines = value.split('\n')
-  const visibleLines = lines.slice(0, PREVIEW_LINE_LIMIT)
-  const hiddenLineCount = Math.max(0, lines.length - visibleLines.length)
-  const language = getLanguageFromPath(path)
-
-  return (
-    <div className="min-h-0 flex-1 overflow-auto bg-[#fdfdfc]">
-      <div className="relative min-w-max py-2">
-        <pre
-          data-workspace-code=""
-          data-testid="workspace-code"
-          className="m-0 font-[var(--font-mono)] text-[12px] leading-[1.55] text-[var(--color-code-fg)]"
-        >
-          {visibleLines.map((line, index) => {
-            const isFileHeader = line.startsWith('diff --') || line.startsWith('--- ') || line.startsWith('+++ ')
-            const isHunk = line.startsWith('@@')
-            const isAdded = line.startsWith('+') && !line.startsWith('+++')
-            const isRemoved = line.startsWith('-') && !line.startsWith('---')
-            const isCodeLine = isAdded || isRemoved || line.startsWith(' ')
-            const code = isCodeLine ? line.slice(1) : line
-            const prefix = isCodeLine ? line[0] : ' '
-
-            return (
-              <div
-                key={`${index}:${line}`}
-                className={`grid grid-cols-[48px_18px_minmax(0,1fr)] gap-2 px-3 ${
-                  isAdded
-                    ? 'bg-[var(--color-diff-added-bg)]'
-                    : isRemoved
-                      ? 'bg-[var(--color-diff-removed-bg)]'
-                      : isHunk
-                        ? 'bg-[var(--color-diff-highlight-bg)]'
-                        : 'hover:bg-[#f4f4f3]'
-                }`}
-              >
-                <span className="select-none text-right text-[11px] text-[#96999d]">
-                  {index + 1}
-                </span>
-                <span
-                  className={`select-none text-center ${
-                    isAdded
-                      ? 'text-[var(--color-diff-added-text)]'
-                      : isRemoved
-                        ? 'text-[var(--color-diff-removed-text)]'
-                        : 'text-[#9aa0a6]'
-                  }`}
-                >
-                  {prefix}
-                </span>
-                <span
-                  className={`whitespace-pre pr-6 ${
-                    isFileHeader
-                      ? 'font-semibold text-[#747a82]'
-                      : isHunk
-                        ? 'font-semibold text-[#8a6f00]'
-                        : ''
-                  }`}
-                >
-                  {isCodeLine ? (
-                    code ? <InlineHighlightedCode value={code} language={language} /> : ' '
-                  ) : (
-                    code || ' '
-                  )}
-                </span>
-              </div>
-            )
-          })}
-        </pre>
-        {hiddenLineCount > 0 && (
-          <div className="sticky bottom-0 border-t border-[#e7e7e7] bg-white/95 px-3 py-2 text-xs text-[var(--color-text-tertiary)] backdrop-blur">
-            {t('workspace.previewLineLimit', { count: PREVIEW_LINE_LIMIT })}
-          </div>
-        )}
       </div>
     </div>
   )
@@ -532,12 +378,12 @@ function ImagePreview({ tab }: { tab: WorkspacePreviewTab }) {
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto bg-[#fdfdfc] p-4">
+    <div className="min-h-0 flex-1 overflow-auto bg-[var(--color-surface)] p-4">
       <div className="flex min-h-full items-center justify-center">
         <img
           src={tab.dataUrl}
           alt={tab.path}
-          className="max-h-full max-w-full rounded-[8px] border border-[#e5e5e5] bg-white object-contain shadow-sm"
+          className="max-h-full max-w-full rounded-[8px] border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] object-contain shadow-sm"
         />
       </div>
     </div>
@@ -555,13 +401,13 @@ function ChangedFileRow({
     <button
       type="button"
       onClick={onClick}
-      className="mx-2 flex w-[calc(100%-16px)] items-center gap-3 rounded-[7px] px-2 py-2 text-left transition-colors hover:bg-[#f3f3f3]"
+      className="mx-2 flex w-[calc(100%-16px)] items-center gap-3 rounded-[7px] px-2 py-2 text-left transition-colors hover:bg-[var(--color-surface-hover)]"
     >
       <FileStatusBadge status={file.status} />
       <div className="min-w-0 flex-1">
-        <div className="truncate text-[13px] font-medium text-[#282a2d]">{file.path}</div>
+        <div className="truncate text-[13px] font-medium text-[var(--color-text-primary)]">{file.path}</div>
         {file.oldPath && (
-          <div className="truncate text-[11px] text-[#8b9096]">
+          <div className="truncate text-[11px] text-[var(--color-text-tertiary)]">
             {file.oldPath}
           </div>
         )}
@@ -603,13 +449,13 @@ function TreeNode({
         onClick={() => onOpenFile(entry.path)}
         className={`group mx-2 flex h-8 w-[calc(100%-16px)] items-center gap-2 rounded-[7px] pr-2 text-left transition-colors ${
           isActive
-            ? 'bg-[#f7f7f7] shadow-[inset_0_0_0_1.5px_#0a96ff]'
-            : 'hover:bg-[#f3f3f3]'
+            ? 'bg-[var(--color-surface-selected)] shadow-[inset_0_0_0_1.5px_var(--color-border-focus)]'
+            : 'hover:bg-[var(--color-surface-hover)]'
         }`}
         style={{ paddingLeft: indent }}
       >
         <FileTypeBadge name={entry.name} subtle={!isActive} />
-        <span className="min-w-0 truncate text-[14px] font-medium text-[#282a2d]">{entry.name}</span>
+        <span className="min-w-0 truncate text-[14px] font-medium text-[var(--color-text-primary)]">{entry.name}</span>
       </button>
     )
   }
@@ -620,13 +466,13 @@ function TreeNode({
         type="button"
         onClick={() => onToggle(entry.path)}
         aria-expanded={isVisuallyExpanded}
-        className="group mx-2 flex h-8 w-[calc(100%-16px)] items-center gap-2 rounded-[7px] pr-2 text-left transition-colors hover:bg-[#f3f3f3]"
+        className="group mx-2 flex h-8 w-[calc(100%-16px)] items-center gap-2 rounded-[7px] pr-2 text-left transition-colors hover:bg-[var(--color-surface-hover)]"
         style={{ paddingLeft: indent }}
       >
-        <span className="material-symbols-outlined shrink-0 text-[18px] text-[#858a90] transition-colors group-hover:text-[#34373b]">
+        <span className="material-symbols-outlined shrink-0 text-[18px] text-[var(--color-text-tertiary)] transition-colors group-hover:text-[var(--color-text-primary)]">
           {isVisuallyExpanded ? 'expand_more' : 'chevron_right'}
         </span>
-        <span className="min-w-0 truncate text-[15px] font-medium text-[#24272b]">{entry.name}</span>
+        <span className="min-w-0 truncate text-[15px] font-medium text-[var(--color-text-primary)]">{entry.name}</span>
       </button>
 
       {isVisuallyExpanded && (
@@ -634,7 +480,7 @@ function TreeNode({
           {depth < 4 && (
             <span
               aria-hidden="true"
-              className="pointer-events-none absolute bottom-1 top-1 w-px bg-[#e5e5e5]"
+              className="pointer-events-none absolute bottom-1 top-1 w-px bg-[var(--color-border)]"
               style={{ left: 28 + depth * 20 }}
             />
           )}
@@ -695,6 +541,7 @@ export function WorkspacePanel({ sessionId }: WorkspacePanelProps) {
   const t = useTranslation()
   const [filterQuery, setFilterQuery] = useState('')
   const [isViewMenuOpen, setIsViewMenuOpen] = useState(false)
+  const [previewTabContextMenu, setPreviewTabContextMenu] = useState<{ tabId: string; x: number; y: number } | null>(null)
   const width = useWorkspacePanelStore((state) => state.width)
   const isOpen = useWorkspacePanelStore((state) => state.isPanelOpen(sessionId))
   const activeView = useWorkspacePanelStore((state) => state.getActiveView(sessionId))
@@ -717,6 +564,7 @@ export function WorkspacePanel({ sessionId }: WorkspacePanelProps) {
   const toggleTreeNode = useWorkspacePanelStore((state) => state.toggleTreeNode)
   const openPreview = useWorkspacePanelStore((state) => state.openPreview)
   const closePreview = useWorkspacePanelStore((state) => state.closePreview)
+  const closePreviewTabs = useWorkspacePanelStore((state) => state.closePreviewTabs)
   const closePanel = useWorkspacePanelStore((state) => state.closePanel)
 
   const rootTree = treeByPath['']
@@ -758,6 +606,13 @@ export function WorkspacePanel({ sessionId }: WorkspacePanelProps) {
     void loadTree(sessionId, '')
   }, [activeView, isOpen, loadTree, rootTree, rootTreeError, rootTreeLoading, sessionId])
 
+  useEffect(() => {
+    if (!previewTabContextMenu) return
+    const close = () => setPreviewTabContextMenu(null)
+    document.addEventListener('click', close)
+    return () => document.removeEventListener('click', close)
+  }, [previewTabContextMenu])
+
   if (!isOpen) return null
 
   const hasPreviewTabs = previewTabs.length > 0
@@ -783,6 +638,18 @@ export function WorkspacePanel({ sessionId }: WorkspacePanelProps) {
   const handleSetActiveView = (view: 'changed' | 'all') => {
     setActiveView(sessionId, view)
     setIsViewMenuOpen(false)
+  }
+
+  const handlePreviewTabContextMenu = (event: MouseEvent, tabId: string) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setPreviewTabContextMenu({ tabId, x: event.clientX, y: event.clientY })
+  }
+
+  const handleClosePreviewTabs = (scope: WorkspacePreviewCloseScope) => {
+    if (!previewTabContextMenu) return
+    closePreviewTabs(sessionId, previewTabContextMenu.tabId, scope)
+    setPreviewTabContextMenu(null)
   }
 
   const renderChangedView = () => {
@@ -900,17 +767,17 @@ export function WorkspacePanel({ sessionId }: WorkspacePanelProps) {
 
     return (
       <>
-        <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-[#ededed] bg-white px-3 text-[12px]">
-          <span className="truncate text-[#8b8f95]">{status?.repoName || 'workspace'}</span>
+        <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] px-3 text-[12px]">
+          <span className="truncate text-[var(--color-text-tertiary)]">{status?.repoName || 'workspace'}</span>
           {activePreviewTab.path.split('/').map((segment, index, segments) => (
             <span key={`${segment}:${index}`} className="flex min-w-0 items-center gap-1.5">
-              <span className="text-[#b2b5ba]">›</span>
-              <span className={`truncate ${index === segments.length - 1 ? 'font-semibold text-[#25272a]' : 'text-[#7b8087]'}`}>
+              <span className="text-[var(--color-text-tertiary)]">›</span>
+              <span className={`truncate ${index === segments.length - 1 ? 'font-semibold text-[var(--color-text-primary)]' : 'text-[var(--color-text-secondary)]'}`}>
                 {segment}
               </span>
             </span>
           ))}
-          <span className="ml-auto shrink-0 rounded-[5px] border border-[#ececec] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.1em] text-[#8a8f96]">
+          <span className="ml-auto shrink-0 rounded-[5px] border border-[var(--color-border)] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.1em] text-[var(--color-text-tertiary)]">
             {kindLabel}
           </span>
         </div>
@@ -920,7 +787,7 @@ export function WorkspacePanel({ sessionId }: WorkspacePanelProps) {
         ) : state === 'ok' && activePreviewTab.previewType === 'image' ? (
           <ImagePreview tab={activePreviewTab} />
         ) : state === 'ok' && activePreviewTab.kind === 'diff' ? (
-          <DiffSurface
+          <WorkspaceDiffSurface
             value={activePreviewTab.diff ?? ''}
             path={activePreviewTab.path}
           />
@@ -943,80 +810,134 @@ export function WorkspacePanel({ sessionId }: WorkspacePanelProps) {
   }
 
   const renderPreviewTabs = () => (
-    <div
-      role="tablist"
-      aria-label={t('workspace.previewTabs')}
-      className="flex h-11 shrink-0 items-center gap-1 overflow-x-auto border-b border-[#ececec] bg-white px-3"
-    >
-      {previewTabs.length === 0 ? (
-        <div className="flex items-center gap-2 px-1.5 text-[12px] text-[#8a8f96]">
-          <span className="material-symbols-outlined text-[15px]">docs</span>
-          <span>{t('workspace.preview')}</span>
-        </div>
-      ) : (
-        previewTabs.map((tab) => {
-          const kindLabel = getPreviewKindLabel(t, tab.kind)
-          const isActive = tab.id === activePreviewTab?.id
+    <>
+      <div
+        role="tablist"
+        aria-label={t('workspace.previewTabs')}
+        className="flex h-11 shrink-0 items-center gap-1 overflow-x-auto border-b border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] px-3"
+      >
+        {previewTabs.length === 0 ? (
+          <div className="flex items-center gap-2 px-1.5 text-[12px] text-[var(--color-text-tertiary)]">
+            <span className="material-symbols-outlined text-[15px]">docs</span>
+            <span>{t('workspace.preview')}</span>
+          </div>
+        ) : (
+          previewTabs.map((tab) => {
+            const kindLabel = getPreviewKindLabel(t, tab.kind)
+            const isActive = tab.id === activePreviewTab?.id
 
-          return (
-            <div
-              key={tab.id}
-              className={`group flex h-8 min-w-[118px] max-w-[210px] shrink-0 items-center gap-2 rounded-[8px] px-2 text-left text-[13px] transition-colors ${
-                isActive
-                  ? 'bg-[#f0f0f0] text-[#222529]'
-                  : 'text-[#777c83] hover:bg-[#f6f6f6] hover:text-[#2f3338]'
-              }`}
-            >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={isActive}
-                onClick={() => {
-                  void openPreview(sessionId, tab.path, tab.kind)
-                }}
-                className="min-w-0 flex flex-1 items-center gap-2 text-left"
+            return (
+              <div
+                key={tab.id}
+                onContextMenu={(event) => handlePreviewTabContextMenu(event, tab.id)}
+                className={`group flex h-8 min-w-[118px] max-w-[210px] shrink-0 items-center gap-2 rounded-[8px] px-2 text-left text-[13px] transition-colors ${
+                  isActive
+                    ? 'bg-[var(--color-surface-selected)] text-[var(--color-text-primary)]'
+                    : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]'
+                }`}
               >
-                {tab.kind === 'diff' ? (
-                  <span className="material-symbols-outlined shrink-0 text-[15px] text-[#8b9096]">difference</span>
-                ) : (
-                  <FileTypeBadge name={tab.title} subtle={!isActive} />
-                )}
-                <span className="min-w-0 flex-1 truncate">{tab.title}</span>
-              </button>
-              <button
-                type="button"
-                aria-label={`${t('workspace.closeTab')} ${tab.title} ${kindLabel}`}
-                onClick={() => {
-                  closePreview(sessionId, tab.id)
-                }}
-                className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-[5px] text-[#9a9fa6] opacity-0 transition-colors hover:bg-[#e4e4e4] hover:text-[#30343a] group-hover:opacity-100 focus-visible:opacity-100"
-              >
-                <span className="material-symbols-outlined text-[13px] leading-none">close</span>
-              </button>
-            </div>
-          )
-        })
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  onClick={() => {
+                    void openPreview(sessionId, tab.path, tab.kind)
+                  }}
+                  className="min-w-0 flex flex-1 items-center gap-2 text-left"
+                >
+                  {tab.kind === 'diff' ? (
+                    <span className="material-symbols-outlined shrink-0 text-[15px] text-[var(--color-text-tertiary)]">difference</span>
+                  ) : (
+                    <FileTypeBadge name={tab.title} subtle={!isActive} />
+                  )}
+                  <span className="min-w-0 flex-1 truncate">{tab.title}</span>
+                </button>
+                <button
+                  type="button"
+                  aria-label={`${t('workspace.closeTab')} ${tab.title} ${kindLabel}`}
+                  onClick={() => {
+                    closePreview(sessionId, tab.id)
+                  }}
+                  className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-[5px] text-[var(--color-text-tertiary)] opacity-0 transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] group-hover:opacity-100 focus-visible:opacity-100"
+                >
+                  <span className="material-symbols-outlined text-[13px] leading-none">close</span>
+                </button>
+              </div>
+            )
+          })
+        )}
+      </div>
+
+      {previewTabContextMenu && (
+        <div
+          role="menu"
+          className="fixed z-50 min-w-[156px] rounded-[10px] border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] py-1 text-[12px] shadow-[var(--shadow-dropdown)]"
+          style={{ left: previewTabContextMenu.x, top: previewTabContextMenu.y }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => handleClosePreviewTabs('current')}
+            className="block w-full px-3 py-1.5 text-left text-[var(--color-text-primary)] hover:bg-[var(--color-surface-hover)]"
+          >
+            {t('tabs.close')}
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => handleClosePreviewTabs('others')}
+            className="block w-full px-3 py-1.5 text-left text-[var(--color-text-primary)] hover:bg-[var(--color-surface-hover)]"
+          >
+            {t('tabs.closeOthers')}
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => handleClosePreviewTabs('left')}
+            className="block w-full px-3 py-1.5 text-left text-[var(--color-text-primary)] hover:bg-[var(--color-surface-hover)]"
+          >
+            {t('tabs.closeLeft')}
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => handleClosePreviewTabs('right')}
+            className="block w-full px-3 py-1.5 text-left text-[var(--color-text-primary)] hover:bg-[var(--color-surface-hover)]"
+          >
+            {t('tabs.closeRight')}
+          </button>
+          <div className="my-1 border-t border-[var(--color-border)]" />
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => handleClosePreviewTabs('all')}
+            className="block w-full px-3 py-1.5 text-left text-[var(--color-text-primary)] hover:bg-[var(--color-surface-hover)]"
+          >
+            {t('tabs.closeAll')}
+          </button>
+        </div>
       )}
-    </div>
+    </>
   )
 
   return (
     <aside
       data-testid="workspace-panel"
-      className="flex h-full shrink-0 border-l border-[#e7e7e7] bg-white"
+      className="flex h-full shrink-0 border-l border-[var(--color-border)] bg-[var(--color-surface)]"
       style={{ width: panelWidth, maxWidth: panelMaxWidth, minWidth: panelMinWidth }}
     >
       {hasPreviewTabs && (
-        <div className="flex min-w-0 flex-1 flex-col border-r border-[#e7e7e7] bg-white">
+        <div className="flex min-w-0 flex-1 flex-col border-r border-[var(--color-border)] bg-[var(--color-surface)]">
           {renderPreviewTabs()}
           {renderPreviewContent()}
         </div>
       )}
 
       <div
-        className={`${hasPreviewTabs ? 'basis-[32%] min-w-[220px] max-w-[320px]' : 'w-full'} flex h-full shrink-0 flex-col bg-white`}
+        className={`${hasPreviewTabs ? 'basis-[32%] min-w-[220px] max-w-[320px]' : 'w-full'} flex h-full shrink-0 flex-col bg-[var(--color-surface)]`}
       >
-        <div className="flex h-12 shrink-0 items-center gap-2 border-b border-[#ececec] px-3">
+        <div className="flex h-12 shrink-0 items-center gap-2 border-b border-[var(--color-border)] px-3">
           <div className="relative min-w-0">
             <button
               type="button"
@@ -1024,17 +945,17 @@ export function WorkspacePanel({ sessionId }: WorkspacePanelProps) {
               aria-haspopup="menu"
               aria-expanded={isViewMenuOpen}
               onClick={() => setIsViewMenuOpen((open) => !open)}
-              className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-[8px] px-2.5 py-1.5 text-[18px] font-semibold leading-none text-[#202327] transition-colors hover:bg-[#f4f4f4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0a96ff]/35"
+              className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-[8px] px-2.5 py-1.5 text-[18px] font-semibold leading-none text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]/35"
             >
               <span className="truncate">
                 {activeView === 'changed' ? t('workspace.changedFiles') : t('workspace.allFiles')}
               </span>
-              <span className="material-symbols-outlined shrink-0 text-[18px] font-normal text-[#858a90]">expand_more</span>
+              <span className="material-symbols-outlined shrink-0 text-[18px] font-normal text-[var(--color-text-tertiary)]">expand_more</span>
             </button>
             {isViewMenuOpen && (
               <div
                 role="menu"
-                className="absolute left-0 top-[calc(100%+6px)] z-30 min-w-[132px] overflow-hidden rounded-[10px] border border-[#e6e6e6] bg-white py-1 shadow-[0_10px_28px_rgba(20,20,20,0.12)]"
+                className="absolute left-0 top-[calc(100%+6px)] z-30 min-w-[132px] overflow-hidden rounded-[10px] border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] py-1 shadow-[var(--shadow-dropdown)]"
               >
                 {(['changed', 'all'] as const).map((view) => {
                   const selected = activeView === view
@@ -1045,14 +966,14 @@ export function WorkspacePanel({ sessionId }: WorkspacePanelProps) {
                       role="menuitem"
                       onClick={() => handleSetActiveView(view)}
                       className={`flex h-8 w-full items-center gap-2 px-3 text-left text-[13px] transition-colors ${
-                        selected ? 'bg-[#f4f4f4] text-[#202327]' : 'text-[#4b5056] hover:bg-[#f7f7f7]'
+                        selected ? 'bg-[var(--color-surface-selected)] text-[var(--color-text-primary)]' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]'
                       }`}
                     >
                       <span className="min-w-0 flex-1 truncate">
                         {view === 'changed' ? t('workspace.changedFiles') : t('workspace.allFiles')}
                       </span>
                       {selected && (
-                        <span className="material-symbols-outlined text-[15px] text-[#0a96ff]">check</span>
+                        <span className="material-symbols-outlined text-[15px] text-[var(--color-brand)]">check</span>
                       )}
                     </button>
                   )

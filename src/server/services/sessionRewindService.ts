@@ -284,7 +284,7 @@ async function restoreBackupFile(
 
 async function buildCodePreview(
   sessionId: string,
-  workDir: string,
+  checkpointBaseDir: string,
   targetUserMessageId: string,
 ): Promise<{
   snapshots: FileHistorySnapshot[] | null
@@ -332,7 +332,7 @@ async function buildCodePreview(
 
     if (backupFileName === undefined) continue
 
-    const absolutePath = expandTrackingPath(workDir, trackingPath)
+    const absolutePath = expandTrackingPath(checkpointBaseDir, trackingPath)
 
     if (backupFileName === null) {
       const currentContent = await readFileOrNull(absolutePath)
@@ -384,9 +384,12 @@ export async function previewSessionRewind(
       : null) ||
     (await sessionService.getSessionWorkDir(sessionId)) ||
     process.cwd()
+  const checkpointBaseDir =
+    (await sessionService.getSessionMessageCwd(sessionId, target.targetUserMessageId)) ||
+    workDir
   const { preview } = await buildCodePreview(
     sessionId,
-    workDir,
+    checkpointBaseDir,
     target.targetUserMessageId,
   )
 
@@ -414,9 +417,12 @@ export async function executeSessionRewind(
       : null) ||
     (await sessionService.getSessionWorkDir(sessionId)) ||
     process.cwd()
+  const checkpointBaseDir =
+    (await sessionService.getSessionMessageCwd(sessionId, target.targetUserMessageId)) ||
+    workDir
   const { snapshots, preview } = await buildCodePreview(
     sessionId,
-    workDir,
+    checkpointBaseDir,
     target.targetUserMessageId,
   )
 
@@ -439,7 +445,7 @@ export async function executeSessionRewind(
 
       if (backupFileName === undefined) continue
 
-      const absolutePath = expandTrackingPath(workDir, trackingPath)
+      const absolutePath = expandTrackingPath(checkpointBaseDir, trackingPath)
 
       if (backupFileName === null) {
         try {

@@ -13,6 +13,7 @@ export const WORKSPACE_PANEL_MAX_WIDTH = 1120
 
 export type WorkspacePanelView = 'changed' | 'all'
 export type WorkspacePreviewKind = 'file' | 'diff'
+export type WorkspacePreviewCloseScope = 'current' | 'others' | 'left' | 'right' | 'all'
 export type WorkspacePreviewState =
   | 'loading'
   | WorkspaceReadFileResult['state']
@@ -74,6 +75,7 @@ type WorkspacePanelStore = {
   toggleTreeNode: (sessionId: string, path: string) => Promise<void>
   openPreview: (sessionId: string, path: string, kind: WorkspacePreviewKind) => Promise<void>
   closePreview: (sessionId: string, tabId: string) => void
+  closePreviewTabs: (sessionId: string, tabId: string, scope: WorkspacePreviewCloseScope) => void
   clearSession: (sessionId: string) => void
   resetSessionUi: (sessionId: string) => void
 }
@@ -143,6 +145,14 @@ function removeRecordKey<T>(record: Record<string, T>, key: string) {
   if (!(key in record)) return record
   const { [key]: _removed, ...rest } = record
   return rest
+}
+
+function removeRecordKeys<T>(record: Record<string, T>, keys: string[]) {
+  let next = record
+  for (const key of keys) {
+    next = removeRecordKey(next, key)
+  }
+  return next
 }
 
 function invalidateSessionScopedRequests(store: Map<string, number>, sessionId: string) {
@@ -567,13 +577,16 @@ export const useWorkspacePanelStore = create<WorkspacePanelStore>((set, get) => 
   },
 
   closePreview: (sessionId, tabId) => {
-    const requestKey = makePreviewKey(sessionId, tabId)
-    invalidateRequest(previewRequestIds, requestKey)
+    get().closePreviewTabs(sessionId, tabId, 'current')
+  },
 
+  closePreviewTabs: (sessionId, tabId, scope) => {
     set((state) => {
       const tabs = state.previewTabsBySession[sessionId] ?? []
       const index = tabs.findIndex((tab) => tab.id === tabId)
       if (index < 0) {
+        const requestKey = makePreviewKey(sessionId, tabId)
+        invalidateRequest(previewRequestIds, requestKey)
         return {
           loading: {
             ...state.loading,
@@ -586,12 +599,44 @@ export const useWorkspacePanelStore = create<WorkspacePanelStore>((set, get) => 
         }
       }
 
-      const closingTab = tabs[index]!
-      const nextTabs = tabs.filter((tab) => tab.id !== closingTab.id)
+      let nextTabs: WorkspacePreviewTab[]
+      switch (scope) {
+        case 'others':
+          nextTabs = [tabs[index]!]
+          break
+        case 'left':
+          nextTabs = tabs.slice(index)
+          break
+        case 'right':
+          nextTabs = tabs.slice(0, index + 1)
+          break
+        case 'all':
+          nextTabs = []
+          break
+        case 'current':
+        default:
+          nextTabs = tabs.filter((tab) => tab.id !== tabId)
+          break
+      }
+
+      const nextTabIds = new Set(nextTabs.map((tab) => tab.id))
+      const closingTabIds = tabs.map((tab) => tab.id).filter((id) => !nextTabIds.has(id))
+      const requestKeys = closingTabIds.map((id) => makePreviewKey(sessionId, id))
+      for (const key of requestKeys) {
+        invalidateRequest(previewRequestIds, key)
+      }
+
       const activeTabId = state.activePreviewTabIdBySession[sessionId] ?? null
 
       let nextActiveTabId = activeTabId
-      if (activeTabId === closingTab.id) {
+      if (scope === 'all' || nextTabs.length === 0) {
+        nextActiveTabId = null
+      } else if (!activeTabId || !nextTabIds.has(activeTabId)) {
+        const targetTab = nextTabs.find((tab) => tab.id === tabId)
+        nextActiveTabId = targetTab?.id ?? nextTabs[Math.min(index, nextTabs.length - 1)]?.id ?? null
+      } else if (scope === 'others') {
+        nextActiveTabId = tabId
+      } else if (activeTabId === tabId && scope === 'current') {
         if (nextTabs.length === 0) {
           nextActiveTabId = null
         } else if (index >= nextTabs.length) {
@@ -612,11 +657,11 @@ export const useWorkspacePanelStore = create<WorkspacePanelStore>((set, get) => 
         },
         loading: {
           ...state.loading,
-          previewByTabId: removeRecordKey(state.loading.previewByTabId, requestKey),
+          previewByTabId: removeRecordKeys(state.loading.previewByTabId, requestKeys),
         },
         errors: {
           ...state.errors,
-          previewByTabId: removeRecordKey(state.errors.previewByTabId, requestKey),
+          previewByTabId: removeRecordKeys(state.errors.previewByTabId, requestKeys),
         },
       }
     })

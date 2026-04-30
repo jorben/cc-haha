@@ -744,6 +744,7 @@ describe('MessageList nested tool calls', () => {
     render(<MessageList />)
 
     expect(await screen.findByText('2 files changed')).toBeTruthy()
+    expect(screen.getByLabelText('Current turn changed files').className).toContain('w-full max-w-[860px]')
     expect(screen.getByText('+12')).toBeTruthy()
     expect(screen.getByText('-4')).toBeTruthy()
     expect(screen.getByText('src/App.tsx')).toBeTruthy()
@@ -812,11 +813,12 @@ describe('MessageList nested tool calls', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Show diff for src/App.tsx' }))
 
-    expect(await screen.findByText('+new')).toBeTruthy()
+    const diffSurface = await screen.findByTestId('workspace-code')
+    expect(diffSurface.textContent).toContain('+new')
     expect(sessionsApi.getWorkspaceDiff).toHaveBeenCalledWith(ACTIVE_TAB, 'src/App.tsx')
   })
 
-  it('undoes the current turn from the change card using checkpoint rewind', async () => {
+  it('confirms before undoing the current turn from the change card', async () => {
     vi.spyOn(sessionsApi, 'rewind')
       .mockResolvedValueOnce({
         target: {
@@ -888,6 +890,12 @@ describe('MessageList nested tool calls', () => {
     render(<MessageList />)
 
     fireEvent.click(await screen.findByRole('button', { name: 'Undo current turn changes' }))
+
+    expect(sessionsApi.rewind).toHaveBeenCalledTimes(1)
+    const dialog = await screen.findByRole('dialog', { name: 'Undo current turn?' })
+    expect(within(dialog).getByText('This will rewind the latest assistant response and restore tracked files for this turn.')).toBeTruthy()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Undo current turn' }))
 
     await waitFor(() => {
       expect(sessionsApi.rewind).toHaveBeenLastCalledWith(ACTIVE_TAB, {

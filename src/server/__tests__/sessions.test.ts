@@ -1537,6 +1537,65 @@ describe('Sessions API', () => {
     expect(remainingMessages).toHaveLength(0)
   })
 
+  it('POST /api/sessions/:id/rewind should resolve checkpoint paths from the target prompt cwd', async () => {
+    const sessionId = 'bbbbbbbb-bbbb-cccc-dddd-ffffffffffff'
+    const parentDir = path.join(tmpDir, 'nested-cwd-parent')
+    const workDir = path.join(parentDir, 'testbb')
+    const targetFile = path.join(workDir, 'vite.config.js')
+    const userId = crypto.randomUUID()
+    const assistantId = crypto.randomUUID()
+    const laterUserId = crypto.randomUUID()
+    const backupName = 'nested-cwd@v1'
+
+    await fs.mkdir(workDir, { recursive: true })
+    await fs.writeFile(targetFile, "export default 'after'\n", 'utf-8')
+    await writeFileHistoryBackup(sessionId, backupName, "export default 'before'\n")
+
+    await writeSessionFile(sanitizePath(parentDir), sessionId, [
+      makeFileHistorySnapshotEntry(userId, {
+        'testbb/vite.config.js': {
+          backupFileName: backupName,
+          version: 1,
+          backupTime: '2026-01-01T00:00:00.000Z',
+        },
+      }),
+      {
+        ...makeUserEntry('create a nested project', userId),
+        cwd: parentDir,
+        sessionId,
+      },
+      {
+        ...makeAssistantEntry('DONE', userId),
+        uuid: assistantId,
+      },
+      {
+        ...makeUserEntry('latest tool result after cd', laterUserId),
+        cwd: workDir,
+        sessionId,
+      },
+    ])
+
+    const previewRes = await fetch(`${baseUrl}/api/sessions/${sessionId}/rewind`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userMessageIndex: 0, dryRun: true }),
+    })
+    expect(previewRes.status).toBe(200)
+    const preview = await previewRes.json() as {
+      code: { available: boolean; filesChanged: string[] }
+    }
+    expect(preview.code.available).toBe(true)
+    expect(preview.code.filesChanged).toEqual([targetFile])
+
+    const executeRes = await fetch(`${baseUrl}/api/sessions/${sessionId}/rewind`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userMessageIndex: 0 }),
+    })
+    expect(executeRes.status).toBe(200)
+    expect(await fs.readFile(targetFile, 'utf-8')).toBe("export default 'before'\n")
+  })
+
   it('POST /api/sessions/:id/rewind should restore multiple files and remove created files', async () => {
     const sessionId = 'cccccccc-bbbb-cccc-dddd-eeeeeeeeeeee'
     const workDir = path.join(tmpDir, 'multi-file-fixture')

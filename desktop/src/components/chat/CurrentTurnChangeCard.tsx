@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import { sessionsApi, type SessionRewindResponse } from '../../api/sessions'
 import { useTranslation } from '../../i18n'
+import { WorkspaceDiffSurface } from '../workspace/WorkspaceCodeSurface'
 
 type DiffPreviewState = {
   loading: boolean
@@ -75,7 +76,7 @@ export function CurrentTurnChangeCard({
 
   return (
     <section
-      className="mx-auto mb-5 max-w-[760px] overflow-hidden rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface)] shadow-sm"
+      className="mx-auto mb-5 w-full max-w-[860px] overflow-hidden rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface)] shadow-sm"
       aria-label={t('chat.turnChangesCardLabel')}
     >
       <div className="flex items-center justify-between gap-3 border-b border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-4 py-3">
@@ -142,7 +143,11 @@ export function CurrentTurnChangeCard({
                       {diffState.error}
                     </div>
                   ) : diffState?.diff ? (
-                    <DiffPreview diff={diffState.diff} />
+                    <WorkspaceDiffSurface
+                      value={diffState.diff}
+                      path={filePath}
+                      className="max-h-[430px] overflow-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-code-bg)]"
+                    />
                   ) : (
                     <div className="text-xs text-[var(--color-text-tertiary)]">
                       {t('chat.turnChangesDiffUnavailable')}
@@ -161,28 +166,6 @@ export function CurrentTurnChangeCard({
         </div>
       )}
     </section>
-  )
-}
-
-function DiffPreview({ diff }: { diff: string }) {
-  const lines = diff.split('\n').slice(0, 220)
-  return (
-    <pre className="max-h-[360px] overflow-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-code-bg)] p-3 font-mono text-[12px] leading-5 text-[var(--color-code-fg)]">
-      {lines.map((line, index) => {
-        const colorClass = line.startsWith('+') && !line.startsWith('+++')
-          ? 'text-[var(--color-success)]'
-          : line.startsWith('-') && !line.startsWith('---')
-            ? 'text-[var(--color-error)]'
-            : line.startsWith('@@')
-              ? 'text-[var(--color-brand)]'
-              : 'text-[var(--color-code-fg)]'
-        return (
-          <div key={`${index}-${line}`} className={`${colorClass} whitespace-pre`}>
-            {line || ' '}
-          </div>
-        )
-      })}
-    </pre>
   )
 }
 
