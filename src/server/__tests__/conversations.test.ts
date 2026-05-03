@@ -1024,6 +1024,7 @@ describe('WebSocket Chat Integration', () => {
 
   it('should include desktop service diagnostics when CLI startup fails', async () => {
     const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'claude-startup-missing-workdir-'))
+    const canonicalWorkDir = await fs.realpath(workDir)
     const createRes = await fetch(`${baseUrl}/api/sessions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1042,7 +1043,7 @@ describe('WebSocket Chat Integration', () => {
     })
     expect(error?.message).toContain('Desktop service diagnostics:')
     expect(error?.message).toContain(`sessionId: ${sessionId}`)
-    expect(error?.message).toContain(`workDir: ${workDir}`)
+    expect(error?.message).toContain(`workDir: ${canonicalWorkDir}`)
     expect(error?.message).toContain('runtimeOverride: (none)')
     expect(error?.message).toContain('activeProviderId:')
     expect(error?.message).toContain('configuredProviders:')

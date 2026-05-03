@@ -1197,18 +1197,20 @@ export class SessionService {
     // expand relative paths — in bundled sidecar mode the server's cwd is
     // typically '/'. Callers (IM adapters) already send absolute realPath,
     // but we log here so cwd regressions are caught early.
-    const absWorkDir = path.resolve(resolvedWorkDir)
+    const resolvedPath = path.resolve(resolvedWorkDir)
+    let absWorkDir: string
+    try {
+      absWorkDir = await fs.realpath(resolvedPath)
+    } catch {
+      throw ApiError.badRequest(`Working directory does not exist: ${resolvedPath}`)
+    }
     console.log(
       `[SessionService] createSession: requested workDir=${JSON.stringify(
         workDir,
       )}, resolved=${absWorkDir} (process.cwd()=${process.cwd()})`,
     )
     let stat
-    try {
-      stat = await fs.stat(absWorkDir)
-    } catch {
-      throw ApiError.badRequest(`Working directory does not exist: ${absWorkDir}`)
-    }
+    stat = await fs.stat(absWorkDir)
     if (!stat.isDirectory()) {
       throw ApiError.badRequest(`Working directory is not a directory: ${absWorkDir}`)
     }
@@ -1378,7 +1380,8 @@ export class SessionService {
   async clearSessionTranscript(sessionId: string, fallbackWorkDir?: string): Promise<void> {
     let found = await this.findSessionFile(sessionId)
     if (!found && fallbackWorkDir) {
-      const absWorkDir = path.resolve(fallbackWorkDir)
+      const resolvedPath = path.resolve(fallbackWorkDir)
+      const absWorkDir = await fs.realpath(resolvedPath).catch(() => resolvedPath)
       const dirPath = path.join(this.getProjectsDir(), this.sanitizePath(absWorkDir))
       await fs.mkdir(dirPath, { recursive: true })
       found = {
@@ -1462,6 +1465,11 @@ export class SessionService {
     const removedMessageIds = activeMessages
       .slice(startIndex)
       .map((message) => message.id)
+    const remainingMessageIds = new Set(
+      activeMessages
+        .slice(0, startIndex)
+        .map((message) => message.id),
+    )
 
     if (removedMessageIds.length === 0) {
       return { removedCount: 0, removedMessageIds: [] }
@@ -1469,7 +1477,17 @@ export class SessionService {
 
     const removedIds = new Set(removedMessageIds)
     const filteredEntries = entries.filter(
-      (entry) => !(typeof entry.uuid === 'string' && removedIds.has(entry.uuid)),
+      (entry) => {
+        if (typeof entry.uuid !== 'string') return true
+        if (removedIds.has(entry.uuid)) return false
+        if (
+          entry.message?.role &&
+          (entry.type === 'user' || entry.type === 'assistant' || entry.type === 'system')
+        ) {
+          return remainingMessageIds.has(entry.uuid)
+        }
+        return true
+      },
     )
 
     const content =

@@ -1096,9 +1096,7 @@ export async function executeSessionRewind(
     target.targetUserMessageId,
   )
 
-  if (conversationService.hasSession(sessionId)) {
-    conversationService.stopSession(sessionId)
-  }
+  await conversationService.stopSessionAndWait(sessionId)
 
   if (preview.available && snapshots) {
     const targetSnapshot = findTargetSnapshot(snapshots, target.targetUserMessageId)

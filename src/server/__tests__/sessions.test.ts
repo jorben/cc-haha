@@ -847,7 +847,8 @@ describe('SessionService', () => {
     )
 
     // Verify the file was created
-    const sanitized = sanitizePath(workDir)
+    const canonicalWorkDir = await fs.realpath(workDir)
+    const sanitized = sanitizePath(canonicalWorkDir)
     const filePath = path.join(tmpDir, 'projects', sanitized, `${sessionId}.jsonl`)
     const stat = await fs.stat(filePath)
     expect(stat.isFile()).toBe(true)
@@ -979,11 +980,12 @@ describe('SessionService', () => {
   })
 
   it('should detect placeholder launch info for desktop-created sessions', async () => {
-    const { sessionId } = await service.createSession(os.tmpdir())
+    const workDir = await fs.realpath(os.tmpdir())
+    const { sessionId } = await service.createSession(workDir)
 
     const launchInfo = await service.getSessionLaunchInfo(sessionId)
     expect(launchInfo).not.toBeNull()
-    expect(launchInfo!.workDir).toBe(os.tmpdir())
+    expect(launchInfo!.workDir).toBe(workDir)
     expect(launchInfo!.transcriptMessageCount).toBe(0)
     expect(launchInfo!.customTitle).toBeNull()
   })
@@ -1225,7 +1227,7 @@ describe('Sessions API', () => {
       isGitRepo: boolean
     }
     expect(statusBody.state).toBe('ok')
-    expect(statusBody.workDir).toBe(workDir)
+    expect(statusBody.workDir).toBe(await fs.realpath(workDir))
     expect(statusBody.isGitRepo).toBe(true)
     expect(statusBody.changedFiles).toEqual(
       expect.arrayContaining([
@@ -1704,6 +1706,54 @@ describe('Sessions API', () => {
       firstUserId,
       firstAssistantId,
     ])
+  })
+
+  it('trimSessionMessagesFrom should remove orphan transcript entries beyond the rewind point', async () => {
+    const sessionId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+    const firstUserId = crypto.randomUUID()
+    const firstAssistantId = crypto.randomUUID()
+    const secondUserId = crypto.randomUUID()
+    const secondAssistantId = crypto.randomUUID()
+
+    const filePath = await writeSessionFile('-tmp-api-rewind-orphans', sessionId, [
+      makeSnapshotEntry(),
+      makeSessionMetaEntry('/tmp/project-with-hyphen'),
+      {
+        ...makeUserEntry('first prompt', firstUserId),
+        sessionId,
+      },
+      {
+        ...makeAssistantEntry('first reply', firstUserId),
+        uuid: firstAssistantId,
+      },
+      {
+        ...makeUserEntry('second prompt', secondUserId),
+        parentUuid: firstAssistantId,
+        sessionId,
+      },
+      {
+        ...makeAssistantEntry('second reply', secondUserId),
+        uuid: secondAssistantId,
+      },
+      {
+        ...makeAssistantEntry('late stale reply', secondUserId),
+        uuid: crypto.randomUUID(),
+      },
+    ])
+
+    const result = await service.trimSessionMessagesFrom(sessionId, firstUserId)
+    expect(result.removedMessageIds).toContain(firstUserId)
+    expect(result.removedMessageIds).toContain(secondUserId)
+
+    const raw = await fs.readFile(filePath, 'utf-8')
+    expect(raw).toContain('"type":"session-meta"')
+    expect(raw).not.toContain('late stale reply')
+    expect(await service.getSessionMessages(sessionId)).toEqual([])
+
+    const launchInfo = await service.getSessionLaunchInfo(sessionId)
+    expect(launchInfo).not.toBeNull()
+    expect(launchInfo!.workDir).toBe('/tmp/project-with-hyphen')
+    expect(launchInfo!.transcriptMessageCount).toBe(0)
   })
 
   it('POST /api/sessions/:id/rewind should target the selected message id instead of a shifted visible index', async () => {

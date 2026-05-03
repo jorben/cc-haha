@@ -133,15 +133,15 @@ export class ConversationService {
       )
     }
 
-    if (shouldReplacePlaceholder) {
-      await sessionService.deleteSessionFile(sessionId)
-    }
-
     if (!fs.existsSync(workDir) || !fs.statSync(workDir).isDirectory()) {
       throw new ConversationStartupError(
         `Working directory does not exist or is not a directory: ${workDir}`,
         'WORKDIR_INVALID',
       )
+    }
+
+    if (shouldReplacePlaceholder) {
+      await sessionService.clearSessionTranscript(sessionId, workDir)
     }
 
     const args = this.buildSessionCliArgs(
@@ -538,6 +538,20 @@ export class ConversationService {
       session.proc.kill()
       this.sessions.delete(sessionId)
     }
+  }
+
+  async stopSessionAndWait(sessionId: string, timeoutMs = 2_000): Promise<void> {
+    const session = this.sessions.get(sessionId)
+    if (!session) return
+
+    this.sessions.delete(sessionId)
+    session.proc.kill()
+
+    await Promise.race([
+      session.proc.exited.catch(() => undefined),
+      new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),
+    ])
+    await this.waitForProcessOutputDrain(session, timeoutMs)
   }
 
   markSessionDeleted(sessionId: string): void {
