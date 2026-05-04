@@ -6,13 +6,19 @@
  */
 
 import path from 'node:path'
-import { DWClient, TOPIC_ROBOT } from 'dingtalk-stream'
+import { DWClient, TOPIC_CARD, TOPIC_ROBOT } from 'dingtalk-stream'
 import { WsBridge, type ServerMessage, type AttachmentRef } from '../common/ws-bridge.js'
 import { MessageDedup } from '../common/message-dedup.js'
 import { MessageBuffer } from '../common/message-buffer.js'
 import { enqueue } from '../common/chat-queue.js'
 import { getConfiguredWorkDir, loadConfig } from '../common/config.js'
 import { formatImHelp, formatImStatus, formatPermissionRequest, splitMessage } from '../common/format.js'
+import {
+  formatPermissionDecisionStatus,
+  formatPermissionInstructions,
+  parsePermissionCommand,
+  type PermissionDecision,
+} from '../common/permission.js'
 import { SessionStore } from '../common/session-store.js'
 import { AdapterHttpClient, type RecentProject } from '../common/http-client.js'
 import { isAllowedUser, tryPair } from '../common/pairing.js'
@@ -33,6 +39,11 @@ import {
   type DingTalkAiCardInstance,
   type DingTalkAiCardTarget,
 } from './ai-card.js'
+import {
+  buildDingTalkPermissionCardParams,
+  DINGTALK_PERMISSION_CARD_CALLBACK_ROUTE,
+  parseDingTalkPermissionCardAction,
+} from './permission-card.js'
 
 const DINGTALK_API = 'https://api.dingtalk.com'
 
@@ -58,6 +69,7 @@ const aiCardTargets = new Map<string, DingTalkAiCardTarget>()
 const streamingCards = new Map<string, Promise<DingTalkAiCardInstance | null>>()
 const streamingCardText = new Map<string, string>()
 const pendingPermissions = new Map<string, Set<string>>()
+const pendingPermissionChats = new Map<string, string>()
 
 let accessTokenCache: { token: string; expiresAt: number } | null = null
 
@@ -196,10 +208,19 @@ function clearTransientChatState(chatId: string): void {
   aiCardBuffers.delete(chatId)
   streamingCards.delete(chatId)
   streamingCardText.delete(chatId)
+  clearPendingPermissions(chatId)
   const runtime = getRuntimeState(chatId)
   runtime.state = 'idle'
   runtime.verb = undefined
   runtime.pendingPermissionCount = 0
+}
+
+function clearPendingPermissions(chatId: string): void {
+  const pending = pendingPermissions.get(chatId)
+  if (pending) {
+    for (const requestId of pending) pendingPermissionChats.delete(requestId)
+  }
+  pendingPermissions.delete(chatId)
 }
 
 async function ensureExistingSession(chatId: string): Promise<{ sessionId: string; workDir: string } | null> {
@@ -378,12 +399,7 @@ async function handleServerMessage(chatId: string, msg: ServerMessage): Promise<
       runtime.state = 'streaming'
       break
     case 'permission_request': {
-      runtime.pendingPermissionCount += 1
-      runtime.state = 'permission_pending'
-      const set = pendingPermissions.get(chatId) ?? new Set<string>()
-      set.add(msg.requestId)
-      pendingPermissions.set(chatId, set)
-      await sendText(chatId, `${formatPermissionRequest(msg.toolName, msg.input, msg.requestId)}\n\n回复 /allow ${msg.requestId} 允许，或 /deny ${msg.requestId} 拒绝。`)
+      await sendPermissionRequest(chatId, msg)
       break
     }
     case 'message_complete':
@@ -408,24 +424,67 @@ async function handleServerMessage(chatId: string, msg: ServerMessage): Promise<
   }
 }
 
-function handlePermissionCommand(chatId: string, text: string): boolean {
-  const match = text.match(/^\/(allow|deny)\s+(\S+)/i)
-  if (!match) return false
+async function sendPermissionRequest(chatId: string, msg: ServerMessage): Promise<void> {
+  const runtime = getRuntimeState(chatId)
+  runtime.pendingPermissionCount += 1
+  runtime.state = 'permission_pending'
 
-  const [, action, requestId] = match
-  const pending = pendingPermissions.get(chatId)
-  if (!pending?.has(requestId!)) {
-    void sendText(chatId, `未找到待确认的权限请求：${requestId}`)
-    return true
+  const set = pendingPermissions.get(chatId) ?? new Set<string>()
+  set.add(msg.requestId)
+  pendingPermissions.set(chatId, set)
+  pendingPermissionChats.set(msg.requestId, chatId)
+
+  const requestText = formatPermissionRequest(msg.toolName, msg.input, msg.requestId)
+  const instructions = formatPermissionInstructions(msg.requestId)
+  const templateId = config.dingtalk.permissionCardTemplateId.trim()
+  const target = aiCardTargets.get(chatId)
+
+  if (templateId && target) {
+    const card = await aiCards.createForTarget(target, {
+      cardTemplateId: templateId,
+      outTrackId: `permission_${msg.requestId}`,
+      callbackRouteKey: DINGTALK_PERMISSION_CARD_CALLBACK_ROUTE,
+      cardParamMap: buildDingTalkPermissionCardParams(msg.toolName, msg.input, msg.requestId),
+    })
+    if (card) {
+      await sendText(chatId, `${requestText}\n\n已发送钉钉权限卡片；如果卡片不可见，也可以${instructions}`)
+      return
+    }
   }
 
-  const allowed = action?.toLowerCase() === 'allow'
-  bridge.sendPermissionResponse(chatId, requestId!, allowed)
-  pending.delete(requestId!)
+  await sendText(chatId, `${requestText}\n\n${instructions}`)
+}
+
+function handlePermissionCommand(chatId: string, text: string): boolean {
+  const decision = parsePermissionCommand(text)
+  if (!decision) return false
+
+  const sent = applyPermissionDecision(chatId, decision)
+  if (!sent) return true
+
+  void sendText(chatId, formatPermissionDecisionStatus(decision))
+  return true
+}
+
+function applyPermissionDecision(chatId: string, decision: PermissionDecision): boolean {
+  const { requestId, allowed, rule } = decision
+  const pending = pendingPermissions.get(chatId)
+  if (!pending?.has(requestId)) {
+    void sendText(chatId, `未找到待确认的权限请求：${requestId}`)
+    return false
+  }
+
+  const sent = bridge.sendPermissionResponse(chatId, requestId, allowed, rule)
+  if (!sent) {
+    void sendText(chatId, '权限响应发送失败，请检查会话状态。')
+    return false
+  }
+
+  pending.delete(requestId)
+  pendingPermissionChats.delete(requestId)
   const runtime = getRuntimeState(chatId)
   runtime.pendingPermissionCount = Math.max(0, runtime.pendingPermissionCount - 1)
-  void sendText(chatId, allowed ? '✅ 已允许' : '❌ 已拒绝')
-  return true
+  return sent
 }
 
 async function routeUserMessage(chatId: string, text: string, attachments: AttachmentRef[] = []): Promise<void> {
@@ -519,6 +578,23 @@ async function handleRobotMessage(data: DingTalkRobotMessage): Promise<void> {
   await routeUserMessage(chatId, text, attachments)
 }
 
+async function handleCardCallback(raw: unknown): Promise<void> {
+  const action = parseDingTalkPermissionCardAction(raw)
+  if (!action) return
+
+  const chatId = action.chatId && pendingPermissions.has(action.chatId)
+    ? action.chatId
+    : pendingPermissionChats.get(action.requestId)
+  if (!chatId) {
+    console.warn(`[DingTalk][Card] permission request not found: ${action.requestId}`)
+    return
+  }
+
+  if (applyPermissionDecision(chatId, action)) {
+    await sendText(chatId, formatPermissionDecisionStatus(action))
+  }
+}
+
 async function collectAttachments(
   chatId: string,
   candidates: ReturnType<typeof extractDingTalkAttachments>,
@@ -603,6 +679,16 @@ async function start(): Promise<void> {
     if (data.msgId && !dedup.tryRecord(`body:${data.msgId}`)) return
 
     await handleRobotMessage(data)
+  })
+
+  client.registerCallbackListener(TOPIC_CARD, async (res: any) => {
+    const messageId = res.headers?.messageId
+    if (messageId) {
+      client.socketCallBackResponse(messageId, { success: true })
+      if (!dedup.tryRecord(`card:${messageId}`)) return
+    }
+
+    await handleCardCallback(res.data ?? res)
   })
 
   await client.connect()

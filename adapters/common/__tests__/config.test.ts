@@ -8,12 +8,14 @@ describe('adapter config defaults', () => {
   const originalConfigDir = process.env.CLAUDE_CONFIG_DIR
   const originalAdapterDefaultWorkDir = process.env.CLAUDE_ADAPTER_DEFAULT_WORK_DIR
   const originalAdapterDefaultProjectDir = process.env.ADAPTER_DEFAULT_PROJECT_DIR
+  const originalDingtalkPermissionCardTemplateId = process.env.DINGTALK_PERMISSION_CARD_TEMPLATE_ID
   const originalPwd = process.env.PWD
 
   afterEach(() => {
     restoreEnv('CLAUDE_CONFIG_DIR', originalConfigDir)
     restoreEnv('CLAUDE_ADAPTER_DEFAULT_WORK_DIR', originalAdapterDefaultWorkDir)
     restoreEnv('ADAPTER_DEFAULT_PROJECT_DIR', originalAdapterDefaultProjectDir)
+    restoreEnv('DINGTALK_PERMISSION_CARD_TEMPLATE_ID', originalDingtalkPermissionCardTemplateId)
     restoreEnv('PWD', originalPwd)
   })
 
@@ -80,6 +82,24 @@ describe('adapter config defaults', () => {
     } finally {
       fs.rmSync(configDir, { recursive: true, force: true })
       fs.rmSync(defaultProjectDir, { recursive: true, force: true })
+    }
+  })
+
+  it('loads DingTalk permission card template id from file or env', () => {
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'adapter-config-'))
+    try {
+      fs.writeFileSync(
+        path.join(configDir, 'adapters.json'),
+        JSON.stringify({ dingtalk: { permissionCardTemplateId: 'file-template' } }),
+      )
+      process.env.CLAUDE_CONFIG_DIR = configDir
+      delete process.env.DINGTALK_PERMISSION_CARD_TEMPLATE_ID
+      expect(loadConfig().dingtalk.permissionCardTemplateId).toBe('file-template')
+
+      process.env.DINGTALK_PERMISSION_CARD_TEMPLATE_ID = 'env-template'
+      expect(loadConfig().dingtalk.permissionCardTemplateId).toBe('env-template')
+    } finally {
+      fs.rmSync(configDir, { recursive: true, force: true })
     }
   })
 })

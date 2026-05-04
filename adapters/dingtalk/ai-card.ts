@@ -20,6 +20,13 @@ export type DingTalkAiCardInstance = {
   inputingStarted: boolean
 }
 
+export type DingTalkCreateCardOptions = {
+  cardTemplateId?: string
+  outTrackId?: string
+  cardParamMap?: Record<string, unknown>
+  callbackRouteKey?: string
+}
+
 type TokenProvider = () => Promise<string>
 
 export class DingTalkAiCardService {
@@ -28,22 +35,28 @@ export class DingTalkAiCardService {
     private readonly robotCode: string,
   ) {}
 
-  async createForTarget(target: DingTalkAiCardTarget): Promise<DingTalkAiCardInstance | null> {
+  async createForTarget(
+    target: DingTalkAiCardTarget,
+    options: DingTalkCreateCardOptions = {},
+  ): Promise<DingTalkAiCardInstance | null> {
     try {
       const token = await this.getAccessToken()
-      const cardInstanceId = `card_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
-      await postJson('/v1.0/card/instances', token, {
-        cardTemplateId: AI_CARD_TEMPLATE_ID,
+      const cardInstanceId = options.outTrackId ?? `card_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+      const createBody: Record<string, unknown> = {
+        cardTemplateId: options.cardTemplateId || AI_CARD_TEMPLATE_ID,
         outTrackId: cardInstanceId,
         cardData: {
           cardParamMap: {
             config: JSON.stringify({ autoLayout: true }),
+            ...options.cardParamMap,
           },
         },
         callbackType: 'STREAM',
         imGroupOpenSpaceModel: { supportForward: true },
         imRobotOpenSpaceModel: { supportForward: true },
-      })
+      }
+      if (options.callbackRouteKey) createBody.callbackRouteKey = options.callbackRouteKey
+      await postJson('/v1.0/card/instances', token, createBody)
 
       await postJson('/v1.0/card/instances/deliver', token, buildDeliverBody(cardInstanceId, target, this.robotCode))
 

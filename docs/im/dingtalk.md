@@ -19,6 +19,7 @@
 - `Client Secret`
 - 可选 `Stream Endpoint`
 - 可选 `Allowed Users`
+- 可选 `权限卡片模板 ID`
 
 ## 配对用户
 
@@ -44,6 +45,9 @@ bun run dingtalk
 
 - 只处理钉钉单聊消息
 - 使用 `sessionWebhook` 回复文本 / Markdown
+- 支持用户图片附件进入模型输入
+- 支持 AI Card 流式输出和 thinking / 输入状态展示
 - 支持 `/new`、`/projects`、`/status`、`/clear`、`/stop`、`/help`
-- 权限确认通过 `/allow <requestId>` 和 `/deny <requestId>` 回复
-- 群聊、媒体附件、AI Card 流式卡片后续再扩展
+- 权限确认支持 `/allow <requestId>`、`/always <requestId>`、`/deny <requestId>` 文本回复
+- 如果配置了已发布的钉钉互动卡片模板 ID，会优先发送权限卡片，并通过 DingTalk Stream 的 `/v1.0/card/instances/callback` 接收按钮回调；卡片发送失败时自动回退到文本命令
+- 群聊后续再扩展

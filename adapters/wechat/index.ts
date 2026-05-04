@@ -10,6 +10,11 @@ import {
   formatPermissionRequest,
   splitMessage,
 } from '../common/format.js'
+import {
+  formatPermissionDecisionStatus,
+  formatPermissionInstructions,
+  parsePermissionCommand,
+} from '../common/permission.js'
 import { SessionStore } from '../common/session-store.js'
 import { AdapterHttpClient } from '../common/http-client.js'
 import { isAllowedUser, tryPair } from '../common/pairing.js'
@@ -303,7 +308,7 @@ async function handleServerMessage(chatId: string, msg: ServerMessage): Promise<
       pending.add(msg.requestId)
       await sendText(
         chatId,
-        `${formatPermissionRequest(msg.toolName, msg.input, msg.requestId)}\n\n回复 /allow ${msg.requestId} 允许，或 /deny ${msg.requestId} 拒绝。`,
+        `${formatPermissionRequest(msg.toolName, msg.input, msg.requestId)}\n\n${formatPermissionInstructions(msg.requestId)}`,
       )
       break
     }
@@ -397,15 +402,21 @@ async function routeUserMessage(message: WechatMessage): Promise<void> {
       await sendText(chatId, sent ? '已清空当前会话上下文。' : '无法发送 /clear，请先发送 /new 重新连接会话。')
       return
     }
-    if (!hasAttachments && (text.startsWith('/allow ') || text.startsWith('/deny '))) {
-      const requestId = text.split(/\s+/)[1]
-      if (!requestId) return
-      const allowed = text.startsWith('/allow ')
-      const sent = bridge.sendPermissionResponse(chatId, requestId, allowed)
+    const permissionDecision = !hasAttachments ? parsePermissionCommand(text) : null
+    if (permissionDecision) {
+      const { requestId, allowed, rule } = permissionDecision
+      const pending = pendingPermissions.get(chatId)
+      if (!pending?.has(requestId)) {
+        await sendText(chatId, `未找到待确认的权限请求：${requestId}`)
+        return
+      }
+      const sent = bridge.sendPermissionResponse(chatId, requestId, allowed, rule)
       const runtime = getRuntimeState(chatId)
-      runtime.pendingPermissionCount = Math.max(0, runtime.pendingPermissionCount - 1)
-      pendingPermissions.get(chatId)?.delete(requestId)
-      await sendText(chatId, sent ? (allowed ? '已允许。' : '已拒绝。') : '权限响应发送失败，请检查会话状态。')
+      if (sent) {
+        runtime.pendingPermissionCount = Math.max(0, runtime.pendingPermissionCount - 1)
+        pending.delete(requestId)
+      }
+      await sendText(chatId, sent ? `${formatPermissionDecisionStatus(permissionDecision)}。` : '权限响应发送失败，请检查会话状态。')
       return
     }
     if (!hasAttachments && pendingProjectSelection.has(chatId)) {

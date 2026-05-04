@@ -18,6 +18,10 @@ import {
   formatPermissionRequest,
   splitMessage,
 } from '../common/format.js'
+import {
+  formatPermissionDecisionStatus,
+  parsePermitCallbackData,
+} from '../common/permission.js'
 import { SessionStore } from '../common/session-store.js'
 import { AdapterHttpClient } from '../common/http-client.js'
 import { isAllowedUser, tryPair } from '../common/pairing.js'
@@ -411,6 +415,8 @@ async function handleServerMessage(chatId: string, msg: ServerMessage): Promise<
       const text = formatPermissionRequest(msg.toolName, msg.input, msg.requestId)
       const keyboard = new InlineKeyboard()
         .text('✅ 允许', `permit:${msg.requestId}:yes`)
+        .text('♾️ 永久允许', `permit:${msg.requestId}:always`)
+        .row()
         .text('❌ 拒绝', `permit:${msg.requestId}:no`)
       await bot.api.sendMessage(numericChatId, text, { reply_markup: keyboard })
       break
@@ -714,18 +720,15 @@ bot.on('callback_query:data', async (ctx) => {
   const data = ctx.callbackQuery.data
   if (!data.startsWith('permit:')) return
 
-  const parts = data.split(':')
-  if (parts.length !== 3) return
-
-  const requestId = parts[1]!
-  const allowed = parts[2] === 'yes'
+  const decision = parsePermitCallbackData(data)
+  if (!decision) return
   const chatId = String(ctx.callbackQuery.message?.chat.id)
 
-  bridge.sendPermissionResponse(chatId, requestId, allowed)
+  bridge.sendPermissionResponse(chatId, decision.requestId, decision.allowed, decision.rule)
   const runtime = getRuntimeState(chatId)
   runtime.pendingPermissionCount = Math.max(0, runtime.pendingPermissionCount - 1)
 
-  const statusText = allowed ? '✅ 已允许' : '❌ 已拒绝'
+  const statusText = formatPermissionDecisionStatus(decision)
   try {
     await ctx.editMessageText(
       ctx.callbackQuery.message?.text + `\n\n${statusText}`,

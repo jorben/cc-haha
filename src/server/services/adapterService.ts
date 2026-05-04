@@ -58,6 +58,7 @@ export type AdapterFileConfig = {
     pairedUsers?: PairedUser[]
     defaultWorkDir?: string
     endpoint?: string
+    permissionCardTemplateId?: string
   }
 }
 

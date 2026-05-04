@@ -59,6 +59,7 @@ export function AdapterSettings() {
   const [dtClientSecret, setDtClientSecret] = useState('')
   const [dtAllowedUsers, setDtAllowedUsers] = useState('')
   const [dtEndpoint, setDtEndpoint] = useState('')
+  const [dtPermissionCardTemplateId, setDtPermissionCardTemplateId] = useState('')
   const [dtRegistration, setDtRegistration] = useState<{
     deviceCode: string
     verificationUriComplete: string
@@ -101,6 +102,7 @@ export function AdapterSettings() {
     setDtClientSecret(config.dingtalk?.clientSecret ?? '')
     setDtAllowedUsers(config.dingtalk?.allowedUsers?.join(', ') ?? '')
     setDtEndpoint(config.dingtalk?.endpoint ?? '')
+    setDtPermissionCardTemplateId(config.dingtalk?.permissionCardTemplateId ?? '')
   }, [config])
 
   useEffect(() => {
@@ -236,6 +238,7 @@ export function AdapterSettings() {
         clientSecret: dtClientSecret || undefined,
         allowedUsers: dtUsers.length ? dtUsers : [],
         endpoint: dtEndpoint || undefined,
+        permissionCardTemplateId: dtPermissionCardTemplateId || undefined,
       }
 
       await updateConfig(patch)
@@ -677,6 +680,15 @@ export function AdapterSettings() {
               onChange={(e) => setDtEndpoint(e.target.value)}
               placeholder={t('settings.adapters.dingtalkEndpointPlaceholder')}
             />
+            <div className="flex flex-col gap-1">
+              <Input
+                label={t('settings.adapters.dingtalkPermissionCardTemplateId')}
+                value={dtPermissionCardTemplateId}
+                onChange={(e) => setDtPermissionCardTemplateId(e.target.value)}
+                placeholder={t('settings.adapters.dingtalkPermissionCardTemplateIdPlaceholder')}
+              />
+              <p className="text-xs text-[var(--color-text-tertiary)]">{t('settings.adapters.dingtalkPermissionCardTemplateIdHint')}</p>
+            </div>
             <div className="flex flex-col gap-1">
               <Input
                 label={t('settings.adapters.allowedUsers')}

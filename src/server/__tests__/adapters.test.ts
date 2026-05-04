@@ -62,6 +62,7 @@ describe('Adapters API', () => {
       dingtalk: {
         clientId: 'ding-client-1',
         clientSecret: 'dingtalk-client-secret',
+        permissionCardTemplateId: 'permission-template',
         pairedUsers: [{ userId: 'ding-user', displayName: 'DingTalk User', pairedAt: 1 }],
       },
     })
@@ -73,6 +74,7 @@ describe('Adapters API', () => {
     const json = await res.json() as any
     expect(json.dingtalk.clientSecret).toBe('****cret')
     expect(json.dingtalk.clientId).toBe('ding-client-1')
+    expect(json.dingtalk.permissionCardTemplateId).toBe('permission-template')
 
     const maskedPut = makeRequest('PUT', '/api/adapters', {
       dingtalk: {
@@ -85,6 +87,7 @@ describe('Adapters API', () => {
     const raw = JSON.parse(await fs.readFile(path.join(tmpDir, 'adapters.json'), 'utf-8')) as any
     expect(raw.dingtalk.clientSecret).toBe('dingtalk-client-secret')
     expect(raw.dingtalk.allowedUsers).toEqual(['ding-user'])
+    expect(raw.dingtalk.permissionCardTemplateId).toBe('permission-template')
   })
 
   it('clears WeChat credentials on unbind', async () => {

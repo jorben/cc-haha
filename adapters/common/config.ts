@@ -55,6 +55,7 @@ export type DingtalkConfig = {
   pairedUsers: PairedUser[]
   defaultWorkDir: string
   endpoint: string
+  permissionCardTemplateId: string
 }
 
 export type AdapterConfig = {
@@ -138,6 +139,7 @@ export function loadConfig(): AdapterConfig {
       pairedUsers: dt.pairedUsers ?? [],
       defaultWorkDir: dt.defaultWorkDir || fallbackWorkDir,
       endpoint: process.env.DINGTALK_STREAM_ENDPOINT || dt.endpoint || 'https://api.dingtalk.com',
+      permissionCardTemplateId: process.env.DINGTALK_PERMISSION_CARD_TEMPLATE_ID || dt.permissionCardTemplateId || '',
     },
   }
 }
