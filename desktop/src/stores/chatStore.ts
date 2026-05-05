@@ -124,6 +124,7 @@ type ChatStore = {
 
 const TASK_TOOL_NAMES = new Set(['TaskCreate', 'TaskUpdate', 'TaskGet', 'TaskList', 'TodoWrite'])
 const pendingTaskToolUseIds = new Set<string>()
+const AGENT_COMPLETION_NOTIFICATION_PREVIEW_CHARS = 160
 
 let msgCounter = 0
 const nextId = () => `msg-${++msgCounter}-${Date.now()}`
@@ -170,6 +171,34 @@ function appendAssistantTextMessage(
       ...(model ? { model } : {}),
     },
   ]
+}
+
+function normalizeNotificationPreview(content: string): string {
+  return content
+    .replace(/```[\s\S]*?```/g, ' code block ')
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/[*_~>#-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function buildAgentCompletionNotification(
+  sessionId: string,
+  messages: UIMessage[],
+  text: string,
+): { title: string; body: string; dedupeKey: string } | null {
+  const preview = normalizeNotificationPreview(text)
+  if (!preview) return null
+
+  const lastAssistant = [...messages].reverse().find((message) => message.type === 'assistant_text')
+  const suffix = preview.length > AGENT_COMPLETION_NOTIFICATION_PREVIEW_CHARS ? '...' : ''
+  return {
+    title: 'Claude Code Haha 已完成回复',
+    body: preview.slice(0, AGENT_COMPLETION_NOTIFICATION_PREVIEW_CHARS) + suffix,
+    dedupeKey: `agent-completion:${sessionId}:${lastAssistant?.id ?? Date.now()}`,
+  }
 }
 
 /** Helper: immutably update a specific session within the sessions record */
@@ -729,10 +758,13 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       case 'message_complete': {
         const session = get().sessions[sessionId]
         if (!session) break
+        const wasAgentRunning = session.chatState !== 'idle'
         const text = `${session.streamingText}${consumePendingDelta()}`
+        let completionMessages = session.messages
         if (text.trim()) {
-          update((s) => ({
-            messages: appendAssistantTextMessage(s.messages, text, Date.now()),
+          completionMessages = appendAssistantTextMessage(session.messages, text, Date.now())
+          update(() => ({
+            messages: completionMessages,
             streamingText: '',
           }))
         } else if (text !== session.streamingText) {
@@ -747,6 +779,17 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           pendingComputerUsePermission: null,
           elapsedTimer: null,
         }))
+        const notification = wasAgentRunning
+          ? buildAgentCompletionNotification(sessionId, completionMessages, text)
+          : null
+        if (notification) {
+          void notifyDesktop({
+            dedupeKey: notification.dedupeKey,
+            cooldownScope: 'agent-completion',
+            title: notification.title,
+            body: notification.body,
+          })
+        }
         break
       }
 

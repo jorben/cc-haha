@@ -218,7 +218,7 @@ describe('Settings > General tab', () => {
     })
     expect(desktopNotificationsMock.notifyDesktop).toHaveBeenCalledWith({
       title: 'Claude Code Haha notifications are enabled',
-      body: 'Permission prompts will now use macOS notifications.',
+      body: 'Permission prompts and completed agent replies will now use macOS notifications.',
     })
   })
 

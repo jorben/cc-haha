@@ -1143,6 +1143,125 @@ describe('chatStore history mapping', () => {
     vi.useRealTimers()
   })
 
+  it('sends a desktop notification when the agent finishes a markdown reply', () => {
+    vi.useFakeTimers()
+
+    useChatStore.setState({
+      sessions: {
+        [TEST_SESSION_ID]: {
+          messages: [
+            { id: 'user-1', type: 'user_text', content: '总结一下', timestamp: Date.now() },
+          ],
+          chatState: 'streaming',
+          connectionState: 'connected',
+          streamingText: '',
+          streamingToolInput: '',
+          activeToolUseId: null,
+          activeToolName: null,
+          activeThinkingId: null,
+          pendingPermission: null,
+          pendingComputerUsePermission: null,
+          tokenUsage: { input_tokens: 0, output_tokens: 0 },
+          elapsedSeconds: 0,
+          statusVerb: '',
+          slashCommands: [],
+          agentTaskNotifications: {},
+          elapsedTimer: null,
+        },
+      },
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'content_start',
+      blockType: 'text',
+    })
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'content_delta',
+      text: '## 结果\n\n- **修复完成**\n- `bun test` 已通过',
+    })
+    vi.advanceTimersByTime(60)
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'message_complete',
+      usage: { input_tokens: 1, output_tokens: 2 },
+    })
+
+    expect(notifyDesktopMock).toHaveBeenCalledWith(expect.objectContaining({
+      cooldownScope: 'agent-completion',
+      title: 'Claude Code Haha 已完成回复',
+      body: '结果 修复完成 bun test 已通过',
+    }))
+    expect(notifyDesktopMock.mock.calls[0]?.[0].dedupeKey).toMatch(
+      /^agent-completion:test-session-1:msg-/,
+    )
+
+    vi.runOnlyPendingTimers()
+    vi.useRealTimers()
+  })
+
+  it('does not notify when completion has no assistant text', () => {
+    useChatStore.setState({
+      sessions: {
+        [TEST_SESSION_ID]: {
+          messages: [],
+          chatState: 'thinking',
+          connectionState: 'connected',
+          streamingText: '',
+          streamingToolInput: '',
+          activeToolUseId: null,
+          activeToolName: null,
+          activeThinkingId: null,
+          pendingPermission: null,
+          pendingComputerUsePermission: null,
+          tokenUsage: { input_tokens: 0, output_tokens: 0 },
+          elapsedSeconds: 0,
+          statusVerb: '',
+          slashCommands: [],
+          agentTaskNotifications: {},
+          elapsedTimer: null,
+        },
+      },
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'message_complete',
+      usage: { input_tokens: 1, output_tokens: 0 },
+    })
+
+    expect(notifyDesktopMock).not.toHaveBeenCalled()
+  })
+
+  it('does not notify when a completion arrives after the session is already idle', () => {
+    useChatStore.setState({
+      sessions: {
+        [TEST_SESSION_ID]: {
+          messages: [],
+          chatState: 'idle',
+          connectionState: 'connected',
+          streamingText: '用户已停止后的残余文本',
+          streamingToolInput: '',
+          activeToolUseId: null,
+          activeToolName: null,
+          activeThinkingId: null,
+          pendingPermission: null,
+          pendingComputerUsePermission: null,
+          tokenUsage: { input_tokens: 0, output_tokens: 0 },
+          elapsedSeconds: 0,
+          statusVerb: '',
+          slashCommands: [],
+          agentTaskNotifications: {},
+          elapsedTimer: null,
+        },
+      },
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'message_complete',
+      usage: { input_tokens: 1, output_tokens: 1 },
+    })
+
+    expect(notifyDesktopMock).not.toHaveBeenCalled()
+  })
+
   it('sends Computer Use approval payloads back over websocket', () => {
     useChatStore.setState({
       sessions: {
