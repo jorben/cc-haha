@@ -1,5 +1,6 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import '@testing-library/jest-dom'
 
 import { skillsApi } from '../api/skills'
@@ -75,6 +76,7 @@ import { ToolInspection } from '../pages/ToolInspection'
 // Layout components (chrome is now here, not in pages)
 import { Sidebar } from '../components/layout/Sidebar'
 import { UserMessage } from '../components/chat/UserMessage'
+import { ContextUsageIndicator } from '../components/chat/ContextUsageIndicator'
 import { useChatStore } from '../stores/chatStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useSessionStore } from '../stores/sessionStore'
@@ -134,6 +136,29 @@ describe('Content-only pages render without errors', () => {
     expect(container.querySelector('textarea')).toBeInTheDocument()
     expect(container.innerHTML).toContain('New session')
     expect(container.innerHTML).toContain('Ask anything')
+  })
+
+  it('EmptySession shows draft context usage before a session is created', async () => {
+    render(<EmptySession />)
+
+    const indicator = await screen.findByLabelText('Context usage not calculated')
+    expect(indicator).toHaveTextContent('--')
+    expect(vi.mocked(sessionsApi.getInspection)).not.toHaveBeenCalled()
+  })
+
+  it('ContextUsageIndicator does not render a first-paint spinner for draft sessions', () => {
+    const html = renderToStaticMarkup(
+      <ContextUsageIndicator
+        chatState="idle"
+        messageCount={0}
+        fallbackModelLabel="kimi-k2.6"
+        draft
+      />,
+    )
+
+    expect(html).toMatch(/aria-label="(Context usage not calculated|上下文用量待计算)"/)
+    expect(html).toContain('--')
+    expect(html).not.toContain('animate-spin')
   })
 
   it('EmptySession plus menu exposes uploads and slash commands before chat starts', () => {
@@ -677,7 +702,8 @@ describe('Content-only pages render without errors', () => {
     expect(screen.getByText('120,000')).toBeInTheDocument()
     expect(vi.mocked(sessionsApi.getInspection)).toHaveBeenCalledWith(SESSION_ID, {
       includeContext: true,
-      timeout: 45_000,
+      contextOnly: true,
+      timeout: 20_000,
     })
 
     useTabStore.setState({ tabs: [], activeTabId: null })
@@ -733,6 +759,74 @@ describe('Content-only pages render without errors', () => {
     const indicator = await screen.findByLabelText('Context usage loading')
     expect(indicator).toHaveTextContent('--')
     expect(indicator).toHaveClass('h-8')
+
+    useTabStore.setState({ tabs: [], activeTabId: null })
+    useSessionStore.setState({ sessions: [], activeSessionId: null, isLoading: false, error: null })
+    useChatStore.setState({ sessions: {} })
+  })
+
+  it('ActiveSession treats an empty idle session without a running CLI as a 0% placeholder', async () => {
+    const SESSION_ID = 'context-empty-idle-session'
+    vi.mocked(sessionsApi.getInspection).mockResolvedValueOnce({
+      active: false,
+      status: {
+        sessionId: SESSION_ID,
+        workDir: '/workspace/project',
+        cwd: '/workspace/project',
+        permissionMode: 'bypassPermissions',
+        model: 'kimi-k2.6',
+      },
+      errors: {
+        context: 'CLI session is not running',
+      },
+    })
+
+    useTabStore.setState({ tabs: [{ sessionId: SESSION_ID, title: 'Test', type: 'session' as const, status: 'idle' }], activeTabId: SESSION_ID })
+    useSessionStore.setState({
+      sessions: [{
+        id: SESSION_ID,
+        title: 'Test',
+        createdAt: '2026-04-10T00:00:00.000Z',
+        modifiedAt: '2026-04-10T00:00:00.000Z',
+        messageCount: 0,
+        projectPath: '/workspace/project',
+        workDir: '/workspace/project',
+        workDirExists: true,
+      }],
+      activeSessionId: SESSION_ID,
+      isLoading: false,
+      error: null,
+    })
+    useChatStore.setState({
+      sessions: {
+        [SESSION_ID]: {
+          messages: [],
+          chatState: 'idle',
+          connectionState: 'connected',
+          streamingText: '',
+          streamingToolInput: '',
+          activeToolUseId: null,
+          activeToolName: null,
+          activeThinkingId: null,
+          pendingPermission: null,
+          pendingComputerUsePermission: null,
+          tokenUsage: { input_tokens: 0, output_tokens: 0 },
+          elapsedSeconds: 0,
+          statusVerb: '',
+          slashCommands: [],
+          agentTaskNotifications: {},
+          elapsedTimer: null,
+        },
+      },
+    })
+
+    render(<ActiveSession />)
+
+    const indicator = await screen.findByLabelText('Context usage not calculated')
+    expect(indicator).toHaveTextContent('--')
+    expect(screen.getAllByText('kimi-k2.6').length).toBeGreaterThan(0)
+    expect(screen.getByText('Context usage will be calculated after the session starts.')).toBeInTheDocument()
+    expect(screen.queryByText('CLI session is not running')).not.toBeInTheDocument()
 
     useTabStore.setState({ tabs: [], activeTabId: null })
     useSessionStore.setState({ sessions: [], activeSessionId: null, isLoading: false, error: null })
@@ -823,6 +917,76 @@ describe('Content-only pages render without errors', () => {
     useTabStore.setState({ tabs: [], activeTabId: null })
     useSessionStore.setState({ sessions: [], activeSessionId: null, isLoading: false, error: null })
     useChatStore.setState({ sessions: {} })
+  })
+
+  it('ActiveSession keeps selected runtime model visible when context is unavailable', async () => {
+    const SESSION_ID = 'context-unavailable-model-session'
+    vi.mocked(sessionsApi.getInspection).mockResolvedValueOnce({
+      active: false,
+      status: {
+        sessionId: SESSION_ID,
+        workDir: '/workspace/project',
+        cwd: '/workspace/project',
+        permissionMode: 'bypassPermissions',
+      },
+      errors: {
+        context: 'CLI session is not running',
+      },
+    })
+
+    useTabStore.setState({ tabs: [{ sessionId: SESSION_ID, title: 'Test', type: 'session' as const, status: 'idle' }], activeTabId: SESSION_ID })
+    useSessionStore.setState({
+      sessions: [{
+        id: SESSION_ID,
+        title: 'Test',
+        createdAt: '2026-04-10T00:00:00.000Z',
+        modifiedAt: '2026-04-10T00:00:00.000Z',
+        messageCount: 1,
+        projectPath: '/workspace/project',
+        workDir: '/workspace/project',
+        workDirExists: true,
+      }],
+      activeSessionId: SESSION_ID,
+      isLoading: false,
+      error: null,
+    })
+    useSessionRuntimeStore.getState().setSelection(SESSION_ID, {
+      providerId: 'volcengine-provider',
+      modelId: 'kimi-k2.6',
+    })
+    useChatStore.setState({
+      sessions: {
+        [SESSION_ID]: {
+          messages: [{ id: 'm-1', type: 'assistant_text', content: 'ready', timestamp: Date.now() }],
+          chatState: 'idle',
+          connectionState: 'connected',
+          streamingText: '',
+          streamingToolInput: '',
+          activeToolUseId: null,
+          activeToolName: null,
+          activeThinkingId: null,
+          pendingPermission: null,
+          pendingComputerUsePermission: null,
+          tokenUsage: { input_tokens: 0, output_tokens: 0 },
+          elapsedSeconds: 0,
+          statusVerb: '',
+          slashCommands: [],
+          agentTaskNotifications: {},
+          elapsedTimer: null,
+        },
+      },
+    })
+
+    render(<ActiveSession />)
+
+    expect(await screen.findByLabelText('Context usage unavailable')).toBeInTheDocument()
+    expect(screen.getAllByText('kimi-k2.6').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Unknown model')).not.toBeInTheDocument()
+
+    useTabStore.setState({ tabs: [], activeTabId: null })
+    useSessionStore.setState({ sessions: [], activeSessionId: null, isLoading: false, error: null })
+    useChatStore.setState({ sessions: {} })
+    useSessionRuntimeStore.setState({ selections: {} })
   })
 
   it('ActiveSession refreshes context usage when the selected runtime model changes', async () => {

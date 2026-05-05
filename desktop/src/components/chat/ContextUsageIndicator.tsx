@@ -4,14 +4,17 @@ import { useTranslation } from '../../i18n'
 import type { ChatState } from '../../types/chat'
 
 type Props = {
-  sessionId: string
+  sessionId?: string
   chatState: ChatState
   messageCount: number
   runtimeSelectionKey?: string
+  fallbackModelLabel?: string
+  draft?: boolean
   compact?: boolean
 }
 
 const ACTIVE_REFRESH_MS = 30_000
+const CONTEXT_REQUEST_TIMEOUT_MS = 20_000
 
 function formatNumber(value: number | undefined) {
   return new Intl.NumberFormat().format(value ?? 0)
@@ -38,38 +41,66 @@ function pickUsedContextCategory(context: SessionContextSnapshot) {
     .slice(0, 4)
 }
 
+function firstNonEmpty(...values: Array<string | undefined | null>) {
+  return values.find((value) => typeof value === 'string' && value.trim().length > 0)?.trim()
+}
+
+function isCliNotRunningError(error: string | null) {
+  return error?.toLowerCase().includes('cli session is not running') ?? false
+}
+
+function shouldFetchContext(sessionId: string | undefined, draft: boolean) {
+  return Boolean(sessionId) && !draft
+}
+
 export function ContextUsageIndicator({
   sessionId,
   chatState,
   messageCount,
   runtimeSelectionKey = '',
+  fallbackModelLabel,
+  draft = false,
   compact = false,
 }: Props) {
   const t = useTranslation()
   const [context, setContext] = useState<SessionContextSnapshot | null>(null)
   const [contextSource, setContextSource] = useState<'live' | 'estimate' | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(() => shouldFetchContext(sessionId, draft))
   const [error, setError] = useState<string | null>(null)
   const [updatedAt, setUpdatedAt] = useState<number | null>(null)
+  const [inspectionModel, setInspectionModel] = useState<string | null>(null)
   const requestSeq = useRef(0)
   const contextIdentityRef = useRef('')
 
   const refresh = useCallback(async () => {
-    if (!sessionId) return
+    if (!sessionId || draft) {
+      setLoading(false)
+      return
+    }
+    const activeSessionId = sessionId
     const seq = requestSeq.current + 1
     requestSeq.current = seq
     setLoading(true)
     setError(null)
     try {
-      const inspection = await sessionsApi.getInspection(sessionId, {
+      const inspection = await sessionsApi.getInspection(activeSessionId, {
         includeContext: true,
-        timeout: 45_000,
+        contextOnly: true,
+        timeout: CONTEXT_REQUEST_TIMEOUT_MS,
       })
       if (seq !== requestSeq.current) return
       const nextContext = inspection.context ?? inspection.contextEstimate ?? null
       const nextSource = inspection.context ? 'live' : inspection.contextEstimate ? 'estimate' : null
+      const usageModel = inspection.usage?.models.find((model) => firstNonEmpty(model.displayName, model.model)) ?? null
       setContext(nextContext)
       setContextSource(nextSource)
+      setInspectionModel(firstNonEmpty(
+        inspection.context?.model,
+        inspection.contextEstimate?.model,
+        inspection.status?.model,
+        usageModel?.displayName,
+        usageModel?.model,
+      ) ?? null)
       setError(nextContext ? null : inspection.errors?.context ?? null)
       setUpdatedAt(Date.now())
     } catch (err) {
@@ -78,7 +109,7 @@ export function ContextUsageIndicator({
     } finally {
       if (seq === requestSeq.current) setLoading(false)
     }
-  }, [sessionId])
+  }, [draft, sessionId])
 
   useEffect(() => {
     const contextIdentity = `${sessionId}:${runtimeSelectionKey}`
@@ -89,13 +120,9 @@ export function ContextUsageIndicator({
       setContextSource(null)
       setError(null)
       setUpdatedAt(null)
+      setInspectionModel(null)
     }
     void refresh()
-    if (!identityChanged) return
-    const retryTimer = setTimeout(() => {
-      void refresh()
-    }, 2_500)
-    return () => clearTimeout(retryTimer)
   }, [messageCount, refresh, runtimeSelectionKey, sessionId])
 
   useEffect(() => {
@@ -111,6 +138,10 @@ export function ContextUsageIndicator({
     return pickUsedContextCategory(context)
   }, [context])
 
+  const hasPlaceholderContext = !context && (
+    draft || (!loading && messageCount === 0 && (!error || isCliNotRunningError(error)))
+  )
+  const isPendingContext = hasPlaceholderContext && !context
   const percentage = context ? Math.max(0, Math.min(100, context.percentage)) : 0
   const usedTokens = context?.totalTokens ?? 0
   const maxTokens = context?.rawMaxTokens ?? 0
@@ -126,8 +157,11 @@ export function ContextUsageIndicator({
       : 'var(--color-surface-container-high)',
   }
   const displayPercent = context ? formatPercent(percentage) : '--'
+  const displayModel = firstNonEmpty(context?.model, inspectionModel, fallbackModelLabel)
   const ariaLabel = context
     ? t('contextIndicator.ariaLabel', { percent: formatPercent(percentage) })
+    : isPendingContext
+      ? t('contextIndicator.pendingAria')
     : loading
       ? t('contextIndicator.loadingAria')
       : t('contextIndicator.unavailableAria')
@@ -144,18 +178,20 @@ export function ContextUsageIndicator({
           compact ? 'px-2' : 'px-2.5'
         }`}
       >
-        <span
-          className="relative grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full"
-          style={ringStyle}
-        >
-          <span className="absolute inset-[3px] rounded-full bg-[var(--color-surface-container-lowest)]" />
+        <span className="relative grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full">
           {loading && !context ? (
-            <span className="material-symbols-outlined relative animate-spin text-[13px]">progress_activity</span>
+            <span className="absolute inset-[2px] rounded-full border-2 border-[var(--color-text-tertiary)] border-t-transparent motion-safe:animate-spin" />
           ) : (
             <span
-              className="relative h-[5px] w-[5px] rounded-full"
-              style={{ backgroundColor: context ? strokeColor : 'var(--color-text-tertiary)' }}
-            />
+              className="relative grid h-[18px] w-[18px] place-items-center rounded-full"
+              style={ringStyle}
+            >
+              <span className="absolute inset-[3px] rounded-full bg-[var(--color-surface-container-lowest)]" />
+              <span
+                className="relative h-[5px] w-[5px] rounded-full"
+                style={{ backgroundColor: context ? strokeColor : 'var(--color-text-tertiary)' }}
+              />
+            </span>
           )}
         </span>
         <span className="font-mono text-[11px] font-semibold tabular-nums">
@@ -170,7 +206,7 @@ export function ContextUsageIndicator({
               {t('contextIndicator.title')}
             </div>
             <div className="mt-1 truncate text-sm font-semibold text-[var(--color-text-primary)]">
-              {context?.model ?? t('contextIndicator.modelUnknown')}
+              {displayModel ?? t('contextIndicator.modelUnknown')}
             </div>
           </div>
           <div className="shrink-0 font-mono text-xl font-semibold text-[var(--color-text-primary)]">
@@ -191,7 +227,7 @@ export function ContextUsageIndicator({
               </div>
               <div className="col-span-2">
                 <div className="text-[var(--color-text-tertiary)]">{t('contextIndicator.window')}</div>
-                <div className="mt-1 text-[var(--color-text-primary)]">{formatNumber(maxTokens)}</div>
+                <div className="mt-1 text-[var(--color-text-primary)]">{maxTokens > 0 ? formatNumber(maxTokens) : '--'}</div>
               </div>
             </div>
             {details.length > 0 && (
@@ -221,9 +257,13 @@ export function ContextUsageIndicator({
               )}
             </div>
           </>
+        ) : isPendingContext ? (
+          <div className="mt-4 text-sm leading-6 text-[var(--color-text-secondary)]">
+            {t('contextIndicator.pendingDetail')}
+          </div>
         ) : (
           <div className="mt-4 text-sm leading-6 text-[var(--color-text-secondary)]">
-            {loading ? t('contextIndicator.loading') : error ?? t('contextIndicator.unavailableDetail')}
+            {loading ? t('contextIndicator.loading') : t('contextIndicator.unavailableDetail')}
           </div>
         )}
       </div>

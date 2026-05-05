@@ -349,6 +349,7 @@ async function getSessionSlashCommands(sessionId: string): Promise<Response> {
 
 async function getSessionInspection(sessionId: string, url: URL): Promise<Response> {
   const includeContext = url.searchParams.get('includeContext') !== '0'
+  const contextOnly = includeContext && url.searchParams.get('contextOnly') === '1'
   const workDir =
     conversationService.getSessionWorkDir(sessionId) ||
     await sessionService.getSessionWorkDir(sessionId)
@@ -411,46 +412,58 @@ async function getSessionInspection(sessionId: string, url: URL): Promise<Respon
     return Response.json(response)
   }
 
-  const basicControlTimeoutMs = includeContext ? 10_000 : 4_000
-  const [usageResult, contextResult, mcpResult] = await Promise.allSettled([
-    conversationService.requestControl(sessionId, { subtype: 'get_session_usage' }, basicControlTimeoutMs),
-    includeContext
-      ? conversationService.requestControl(
-          sessionId,
-          { subtype: 'get_context_usage', estimateOnly: true },
-          20_000,
-        )
-      : Promise.resolve(null),
-    conversationService.requestControl(sessionId, { subtype: 'mcp_status' }, basicControlTimeoutMs),
-  ])
-
   const errors: Record<string, string> = {}
-  if (usageResult.status === 'fulfilled') {
-    response.usage = chooseRicherUsage(
-      { ...usageResult.value, source: 'current_process' },
-      transcriptUsage,
-    )
-  } else {
-    if (transcriptUsage) {
-      response.usage = transcriptUsage
-    } else {
-      errors.usage = usageResult.reason instanceof Error ? usageResult.reason.message : String(usageResult.reason)
+  if (contextOnly) {
+    try {
+      response.context = await conversationService.requestControl(
+        sessionId,
+        { subtype: 'get_context_usage', estimateOnly: true },
+        20_000,
+      )
+    } catch (error) {
+      errors.context = error instanceof Error ? error.message : String(error)
     }
-  }
-
-  if (!includeContext) {
-    // Context can be expensive on large live sessions. The desktop UI loads it
-    // separately when the context tab is actually selected.
-  } else if (contextResult.status === 'fulfilled' && contextResult.value) {
-    response.context = contextResult.value
   } else {
-    errors.context = contextResult.reason instanceof Error ? contextResult.reason.message : String(contextResult.reason)
-  }
+    const basicControlTimeoutMs = includeContext ? 10_000 : 4_000
+    const [usageResult, contextResult, mcpResult] = await Promise.allSettled([
+      conversationService.requestControl(sessionId, { subtype: 'get_session_usage' }, basicControlTimeoutMs),
+      includeContext
+        ? conversationService.requestControl(
+            sessionId,
+            { subtype: 'get_context_usage', estimateOnly: true },
+            20_000,
+          )
+        : Promise.resolve(null),
+      conversationService.requestControl(sessionId, { subtype: 'mcp_status' }, basicControlTimeoutMs),
+    ])
 
-  if (mcpResult.status === 'fulfilled' && response.status && typeof response.status === 'object') {
-    response.status = {
-      ...response.status,
-      mcpServers: Array.isArray(mcpResult.value.mcpServers) ? mcpResult.value.mcpServers : (response.status as Record<string, unknown>).mcpServers,
+    if (usageResult.status === 'fulfilled') {
+      response.usage = chooseRicherUsage(
+        { ...usageResult.value, source: 'current_process' },
+        transcriptUsage,
+      )
+    } else {
+      if (transcriptUsage) {
+        response.usage = transcriptUsage
+      } else {
+        errors.usage = usageResult.reason instanceof Error ? usageResult.reason.message : String(usageResult.reason)
+      }
+    }
+
+    if (!includeContext) {
+      // Context can be expensive on large live sessions. The desktop UI loads it
+      // separately when the context tab is actually selected.
+    } else if (contextResult.status === 'fulfilled' && contextResult.value) {
+      response.context = contextResult.value
+    } else {
+      errors.context = contextResult.reason instanceof Error ? contextResult.reason.message : String(contextResult.reason)
+    }
+
+    if (mcpResult.status === 'fulfilled' && response.status && typeof response.status === 'object') {
+      response.status = {
+        ...response.status,
+        mcpServers: Array.isArray(mcpResult.value.mcpServers) ? mcpResult.value.mcpServers : (response.status as Record<string, unknown>).mcpServers,
+      }
     }
   }
 

@@ -6,6 +6,7 @@ import { useUIStore } from '../../stores/uiStore'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useSessionRuntimeStore } from '../../stores/sessionRuntimeStore'
 import { useTeamStore } from '../../stores/teamStore'
+import { useSettingsStore } from '../../stores/settingsStore'
 import {
   formatWorkspaceReferencePrompt,
   useWorkspaceChatContextStore,
@@ -94,9 +95,11 @@ export function ChatInput({ variant = 'default', compact = false }: ChatInputPro
   const runtimeSelection = useSessionRuntimeStore((state) =>
     activeTabId ? state.selections[activeTabId] : undefined,
   )
+  const currentModel = useSettingsStore((state) => state.currentModel)
   const runtimeSelectionKey = runtimeSelection
     ? `${runtimeSelection.providerId ?? 'official'}:${runtimeSelection.modelId}`
     : undefined
+  const runtimeModelLabel = runtimeSelection?.modelId ?? currentModel?.name ?? currentModel?.id
   const activeSession = useSessionStore((state) => activeTabId ? state.sessions.find((session) => session.id === activeTabId) ?? null : null)
   const memberInfo = useTeamStore((s) => activeTabId ? s.getMemberBySessionId(activeTabId) : null)
   const [gitInfo, setGitInfo] = useState<GitInfo | null>(null)
@@ -826,6 +829,7 @@ export function ChatInput({ variant = 'default', compact = false }: ChatInputPro
                   chatState={chatState}
                   messageCount={messageCount}
                   runtimeSelectionKey={runtimeSelectionKey}
+                  fallbackModelLabel={runtimeModelLabel}
                   compact={compact}
                 />
               )}

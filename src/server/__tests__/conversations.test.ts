@@ -447,6 +447,29 @@ describe('WebSocket Chat Integration', () => {
     }
   }
 
+  async function withMockMcpStatusDelay<T>(
+    delayMs: number | undefined,
+    callback: () => Promise<T>,
+  ): Promise<T> {
+    const previousDelay = process.env.MOCK_SDK_MCP_STATUS_DELAY_MS
+
+    if (delayMs && delayMs > 0) {
+      process.env.MOCK_SDK_MCP_STATUS_DELAY_MS = String(delayMs)
+    } else {
+      delete process.env.MOCK_SDK_MCP_STATUS_DELAY_MS
+    }
+
+    try {
+      return await callback()
+    } finally {
+      if (previousDelay === undefined) {
+        delete process.env.MOCK_SDK_MCP_STATUS_DELAY_MS
+      } else {
+        process.env.MOCK_SDK_MCP_STATUS_DELAY_MS = previousDelay
+      }
+    }
+  }
+
   async function withMockExitAfterFirstUser<T>(
     delayMs: number | undefined,
     callback: () => Promise<T>,
@@ -817,6 +840,24 @@ describe('WebSocket Chat Integration', () => {
     const basicBody = await basicRes.json() as any
     expect(basicBody.usage.source).toBe('current_process')
     expect(basicBody.context).toBeUndefined()
+  })
+
+  it('should expose context-only inspection without waiting on mcp status', async () => {
+    await withMockMcpStatusDelay(2_000, async () => {
+      const sessionId = `chat-context-only-${crypto.randomUUID()}`
+      await runTurn(sessionId, 'hello before context-only inspection')
+
+      const startedAt = performance.now()
+      const res = await fetch(`${baseUrl}/api/sessions/${sessionId}/inspection?includeContext=1&contextOnly=1`)
+      const elapsedMs = performance.now() - startedAt
+      expect(res.status).toBe(200)
+      const body = await res.json() as any
+
+      expect(body.context.model).toBe('mock-opus')
+      expect(body.context.estimateOnly).toBe(true)
+      expect(body.usage).toBeUndefined()
+      expect(elapsedMs).toBeLessThan(1_500)
+    })
   })
 
   it('should complete the client turn when the CLI exits after startup', async () => {

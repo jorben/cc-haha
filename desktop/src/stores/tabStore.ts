@@ -154,7 +154,11 @@ export const useTabStore = create<TabStore>((set, get) => ({
       if (!raw) return
 
       const data = JSON.parse(raw) as TabPersistence
-      if (!data.openTabs || data.openTabs.length === 0) return
+      if (!data.openTabs || data.openTabs.length === 0) {
+        set({ tabs: [], activeTabId: null })
+        localStorage.removeItem(TAB_STORAGE_KEY)
+        return
+      }
 
       const { sessions } = await sessionsApi.list({ limit: 200 })
       const existingIds = new Set(sessions.map((s) => s.id))
@@ -179,7 +183,11 @@ export const useTabStore = create<TabStore>((set, get) => ({
           }
         })
 
-      if (validTabs.length === 0) return
+      if (validTabs.length === 0) {
+        set({ tabs: [], activeTabId: null })
+        localStorage.removeItem(TAB_STORAGE_KEY)
+        return
+      }
 
       const activeId = data.activeTabId && validTabs.some((t) => t.sessionId === data.activeTabId)
         ? data.activeTabId

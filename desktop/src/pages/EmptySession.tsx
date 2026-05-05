@@ -13,6 +13,7 @@ import { DirectoryPicker } from '../components/shared/DirectoryPicker'
 import { PermissionModeSelector } from '../components/controls/PermissionModeSelector'
 import { ModelSelector } from '../components/controls/ModelSelector'
 import { AttachmentGallery } from '../components/chat/AttachmentGallery'
+import { ContextUsageIndicator } from '../components/chat/ContextUsageIndicator'
 import { FileSearchMenu, type FileSearchMenuHandle } from '../components/chat/FileSearchMenu'
 import { LocalSlashCommandPanel, type LocalSlashCommandName } from '../components/chat/LocalSlashCommandPanel'
 import {
@@ -63,6 +64,12 @@ export function EmptySession() {
   const connectToSession = useChatStore((state) => state.connectToSession)
   const setActiveView = useUIStore((state) => state.setActiveView)
   const addToast = useUIStore((state) => state.addToast)
+  const currentModel = useSettingsStore((state) => state.currentModel)
+  const draftRuntimeSelection = useSessionRuntimeStore((state) => state.selections[DRAFT_RUNTIME_SELECTION_KEY])
+  const draftRuntimeSelectionKey = draftRuntimeSelection
+    ? `${draftRuntimeSelection.providerId ?? 'official'}:${draftRuntimeSelection.modelId}`
+    : undefined
+  const draftModelLabel = draftRuntimeSelection?.modelId ?? currentModel?.name ?? currentModel?.id
 
   useEffect(() => {
     textareaRef.current?.focus()
@@ -667,6 +674,13 @@ export function EmptySession() {
               </div>
 
               <div className="flex items-center gap-3">
+                <ContextUsageIndicator
+                  chatState="idle"
+                  messageCount={0}
+                  runtimeSelectionKey={draftRuntimeSelectionKey}
+                  fallbackModelLabel={draftModelLabel}
+                  draft
+                />
                 <ModelSelector runtimeKey={DRAFT_RUNTIME_SELECTION_KEY} disabled={isSubmitting || isCreatingSession} />
                 <button
                   onClick={handleSubmit}

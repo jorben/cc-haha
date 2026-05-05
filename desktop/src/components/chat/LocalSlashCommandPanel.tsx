@@ -717,7 +717,7 @@ function SessionInspectorPanel({
     let cancelled = false
     setContextLoading(true)
     setContextError(null)
-    sessionsApi.getInspection(sessionId, { includeContext: true, timeout: 45_000 })
+    sessionsApi.getInspection(sessionId, { includeContext: true, contextOnly: true, timeout: 45_000 })
       .then((response) => {
         if (cancelled) return
         const inspected = assertSessionInspectionResponse(response, t)
