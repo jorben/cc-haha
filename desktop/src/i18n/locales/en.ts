@@ -574,6 +574,8 @@ export const en = {
   'settings.tab.computerUse': 'Computer Use',
   'settings.computerUse.title': 'Computer Use',
   'settings.computerUse.description': 'Allow Claude to take screenshots, click, type, and control your computer. Requires Python 3. On macOS, accessibility permissions are also needed.',
+  'settings.computerUse.enabledToggle': 'Enabled',
+  'settings.computerUse.disabledHint': 'Computer Use is off. New sessions will not inject the computer-use MCP server or expose desktop-control tools to the Coding Agent.',
   'settings.computerUse.notSupported': 'Computer Use is only supported on macOS and Windows.',
   'settings.computerUse.python': 'Python 3',
   'settings.computerUse.pythonNotFound': 'Not installed. Please install Python 3 first.',
