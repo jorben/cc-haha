@@ -163,7 +163,12 @@ describe('EmptySession', () => {
       expect(screen.getByText('main')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByRole('button', { name: /Run/i }))
+    const runButton = screen.getByRole('button', { name: /Run/i })
+    await waitFor(() => {
+      expect(runButton).not.toBeDisabled()
+    })
+
+    fireEvent.click(runButton)
 
     await waitFor(() => {
       expect(mocks.createSession).toHaveBeenCalledWith({
