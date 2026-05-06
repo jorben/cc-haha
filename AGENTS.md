@@ -14,13 +14,17 @@ Install root dependencies with `bun install`, then install desktop dependencies 
 - `cd desktop && bun run test`: run Vitest suites.
 - `cd desktop && bun run lint`: run TypeScript no-emit checks.
 - `bun run quality:providers`: list configured provider/model selectors for live agent baselines.
-- `bun run quality:pr`: run the local PR quality gate and write a report under `artifacts/quality-runs/`.
-- `bun run quality:gate --mode baseline --allow-live --provider-model <provider:model[:label]>`: run live Coding Agent baseline cases, including desktop agent-browser smoke.
-- `bun run quality:gate --mode release --allow-live --provider-model <provider:model[:label]>`: run the release gate with live baseline coverage.
+- `bun run quality:pr`: run the local PR quality gate and write markdown, JSON, JUnit, and per-lane logs under `artifacts/quality-runs/`, plus coverage reports under `artifacts/coverage/`.
+- `bun run check:quarantine`: validate quarantined tests still have owners, exit criteria, and active review windows.
+- `bun run check:coverage`: run root, desktop, and adapter coverage suites with ratchet enforcement.
+- `bun run quality:smoke --provider-model <provider:model[:label]>`: run only provider live/proxy smoke and desktop agent-browser smoke.
+- `bun run quality:gate --mode baseline --allow-live --provider-model <provider:model[:label]>`: run live Coding Agent baseline cases, provider smoke, and desktop agent-browser smoke.
+- `bun run quality:gate --mode release --allow-live --provider-model <provider:model[:label]>`: run the release gate with live baseline, provider smoke, desktop smoke, and coverage.
 
 ## Desktop Release Workflow
 - Desktop releases are built remotely by GitHub Actions, not by uploading local build artifacts.
 - The release workflow is `.github/workflows/release-desktop.yml`; it triggers automatically on `push` of tags matching `v*.*.*`.
+- Release workflow builds wait on a non-live `quality:gate --mode pr` preflight and upload `release-quality-gate`; run the live release gate locally or in a maintainer-controlled environment when provider credentials are available.
 - GitHub Release body is sourced from `release-notes/vX.Y.Z.md` in the tagged commit. Keep the filename aligned with the version/tag exactly.
 - Use `bun run scripts/release.ts <version>` to cut a desktop release. The script updates version files, refreshes `desktop/src-tauri/Cargo.lock`, requires the matching `release-notes/vX.Y.Z.md`, commits it, and creates the annotated tag.
 - The normal release push is `git push origin main --tags`. If the tag, app version, or release-notes filename do not match, the workflow is designed to fail fast instead of publishing the wrong release.
@@ -34,7 +38,7 @@ Install root dependencies with `bun install`, then install desktop dependencies 
 Use TypeScript with 2-space indentation, ESM imports, and no semicolons to match the existing code. Prefer `PascalCase` for React components, `camelCase` for functions, hooks, and stores, and descriptive file names like `teamWatcher.ts` or `AgentTranscript.tsx`. Keep shared UI in `desktop/src/components/`, API clients in `desktop/src/api/`, and avoid adding new dependencies unless the existing utilities cannot cover the change.
 
 ## Testing Guidelines
-Desktop tests use Vitest with Testing Library in a `jsdom` environment. Name tests `*.test.ts` or `*.test.tsx`; colocate focused tests near the file or place broader coverage in `desktop/src/__tests__/`. No coverage gate is configured, so add regression tests for any behavior you change and run the relevant suites before opening a PR.
+Desktop tests use Vitest with Testing Library in a `jsdom` environment. Name tests `*.test.ts` or `*.test.tsx`; colocate focused tests near the file or place broader coverage in `desktop/src/__tests__/`. Add regression tests for behavior changes and keep the coverage ratchet from dropping.
 
 ## Quality Gate Automation
 Future Coding Agents should run the right local gate themselves before claiming a change is ready. Do not ask the user to manually run the commands unless credentials, local model access, or machine resources are missing.
@@ -45,11 +49,12 @@ Future Coding Agents should run the right local gate themselves before claiming 
 - Use `bun run check:native` for `desktop/src-tauri`, sidecars, native packaging, release, or platform startup behavior changes.
 - Use `bun run check:adapters` for `adapters/`; on a fresh checkout run `cd adapters && bun install` first if dependencies are missing.
 - Use `bun run check:docs` for docs, VitePress, README, or docs workflow changes.
+- Use `bun run check:quarantine` and `bun run check:coverage` for code changes; production changes under `desktop/src`, `src/server`, `src/tools`, `src/utils`, or `adapters` must include same-area tests unless a maintainer explicitly approves `allow-missing-tests`. Coverage baseline or threshold changes require `allow-coverage-baseline-change`.
 - For chat, agent loop, tool execution, provider routing, desktop chat UI, CLI task execution, or other core Coding Agent paths, also run a live baseline when local providers are available: first `bun run quality:providers`, then choose one or more copyable selectors and run `bun run quality:gate --mode baseline --allow-live --provider-model <provider:model[:label]>`.
-- For release readiness, run `bun run quality:gate --mode release --allow-live --provider-model <provider:model[:label]>` with at least one real provider/model selector. Prefer multiple providers when quota is available.
+- For release readiness, run `bun run quality:gate --mode release --allow-live --provider-model <provider:model[:label]>` with at least one real provider/model selector. Prefer multiple providers when quota is available. Release-mode live lanes must not be skipped silently.
 - If no live provider is configured, or a provider quota/key is unavailable, run the non-live gate anyway and report the live-baseline blocker explicitly instead of claiming full release confidence.
 - `bun run check:docs` executes `npm ci`, which can rebuild root `node_modules`. Run docs checks sequentially, not in parallel with `quality:pr`, `check:native`, or other commands that depend on the same installed packages.
-- Quality reports are written to `artifacts/quality-runs/<timestamp>/`. Summarize the final report path and the pass/fail counts in handoffs and PR descriptions.
+- Quality reports are written to `artifacts/quality-runs/<timestamp>/` as `report.md`, `report.json`, `junit.xml`, and `logs/*.log`; coverage reports are written to `artifacts/coverage/<timestamp>/`. Summarize the final report paths and the pass/fail/skip counts in handoffs and PR descriptions.
 - Do not commit generated `artifacts/quality-runs/`, local `.omx/` state, `node_modules/`, `desktop/node_modules/`, or adapter dependency folders.
 - Do not claim "complete", "ready to merge", or "ready to release" without either running the matching gate or naming the exact blocker that prevented it.
 

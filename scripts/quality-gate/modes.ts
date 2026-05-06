@@ -20,6 +20,22 @@ export function lanesForMode(mode: QualityGateMode, baselineTargets: BaselineTar
       requiredForModes: ['pr', 'release'],
     },
     {
+      id: 'quarantine',
+      title: 'Quarantine governance',
+      description: 'Validate quarantined tests still have owners, exit criteria, and active review windows.',
+      kind: 'command',
+      command: ['bun', 'run', 'check:quarantine'],
+      requiredForModes: ['pr', 'baseline', 'release'],
+    },
+    {
+      id: 'coverage',
+      title: 'Coverage gate',
+      description: 'Run unit/component coverage suites and enforce the ratcheted coverage baseline.',
+      kind: 'command',
+      command: ['bun', 'run', 'check:coverage'],
+      requiredForModes: ['pr', 'baseline', 'release'],
+    },
+    {
       id: 'baseline-catalog',
       title: 'Baseline case catalog validation',
       description: 'Validate real Coding Agent baseline case definitions and fixture metadata.',
@@ -55,6 +71,19 @@ export function lanesForMode(mode: QualityGateMode, baselineTargets: BaselineTar
         live: true,
       })
     }
+  }
+
+  for (const target of targets) {
+    const targetSlug = target.label.replace(/[^a-zA-Z0-9._-]+/g, '-')
+    lanes.push({
+      id: `provider-smoke:${targetSlug}`,
+      title: `Provider live/proxy smoke (${target.label})`,
+      description: 'Validate live provider connectivity. Saved or active OpenAI-compatible providers also exercise the local non-stream and streaming proxy endpoints; env-only targets validate upstream connectivity and transform pipeline.',
+      kind: 'provider-smoke',
+      baselineTarget: target,
+      requiredForModes: ['baseline', 'release'],
+      live: true,
+    })
   }
 
   for (const target of targets) {

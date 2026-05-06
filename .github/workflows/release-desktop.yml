@@ -19,7 +19,73 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  quality-preflight:
+    name: Quality preflight
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential curl wget file \
+            libxdo-dev libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev patchelf \
+            libfuse2
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install root dependencies
+        run: bun install
+
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: bun install
+
+      - name: Install adapter dependencies
+        working-directory: adapters
+        run: bun install
+
+      - name: Run release quality preflight
+        run: bun run quality:gate --mode pr --artifacts-dir artifacts/quality-runs
+
+      - name: Summarize quality report
+        if: always()
+        shell: bash
+        run: |
+          latest_report="$(find artifacts/quality-runs -name report.md -print | sort | tail -n 1)"
+          if [ -n "$latest_report" ]; then
+            cat "$latest_report" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload quality report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-quality-gate
+          path: artifacts/quality-runs/
+          retention-days: 14
+
   build:
+    needs: quality-preflight
     strategy:
       fail-fast: false
       matrix:

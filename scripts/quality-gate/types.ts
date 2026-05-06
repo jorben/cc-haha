@@ -1,6 +1,6 @@
 export type QualityGateMode = 'pr' | 'baseline' | 'release'
 
-export type LaneKind = 'command' | 'baseline-case' | 'desktop-smoke'
+export type LaneKind = 'command' | 'baseline-case' | 'desktop-smoke' | 'provider-smoke'
 
 export type LaneDefinition = {
   id: string
@@ -50,6 +50,7 @@ export type LaneResult = {
   skipReason?: string
   error?: string
   artifactDir?: string
+  logPath?: string
 }
 
 export type QualityGateOptions = {
@@ -61,6 +62,8 @@ export type QualityGateOptions = {
   artifactsDir?: string
   runOutputDir?: string
   runId?: string
+  onlyLaneSelectors?: string[]
+  skipLaneSelectors?: string[]
 }
 
 export type QualityGateReport = {

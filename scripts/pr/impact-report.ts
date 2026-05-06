@@ -88,6 +88,9 @@ function commandList(result: ReturnType<typeof evaluateChangePolicy>) {
   if (result.checks.docs) {
     commands.push('bun run check:docs')
   }
+  if (result.checks.coverage) {
+    commands.push('bun run check:coverage')
+  }
 
   return commands
 }
@@ -169,11 +172,18 @@ const labels = [
 if (process.env.ALLOW_CLI_CORE_CHANGE === '1') {
   labels.push('allow-cli-core-change')
 }
+if (process.env.ALLOW_MISSING_TESTS === '1') {
+  labels.push('allow-missing-tests')
+}
+if (process.env.ALLOW_COVERAGE_BASELINE_CHANGE === '1') {
+  labels.push('allow-coverage-baseline-change')
+}
 
 const files = await changedFiles()
 const result = evaluateChangePolicy(files, labels)
 const commands = commandList(result)
-const warnings = coverageWarnings(result.files)
+const warnings = [...coverageWarnings(result.files)]
+const blockingTestSignals = result.missingTestSignals
 const notes = riskNotes(result.files)
 
 console.log('# PR impact report')
@@ -184,7 +194,10 @@ console.log(`Labels: ${result.labels.length ? result.labels.join(', ') : 'none'}
 console.log(`Blocked: ${result.blocked ? 'yes' : 'no'}`)
 
 if (result.blockingReason) {
-  console.log(`Blocking reason: ${result.blockingReason}`)
+  console.log('Blocking reasons:')
+  for (const reason of result.blockingReasons) {
+    console.log(`- ${reason}`)
+  }
 }
 
 console.log('')
@@ -195,7 +208,12 @@ for (const command of commands) {
 
 console.log('')
 console.log('## Test coverage signals')
-if (warnings.length === 0) {
+if (blockingTestSignals.length > 0) {
+  for (const signal of blockingTestSignals) {
+    console.log(`- BLOCKING: ${signal}`)
+  }
+}
+if (warnings.length === 0 && blockingTestSignals.length === 0) {
   console.log('- No obvious missing-test signal from changed paths.')
 } else {
   for (const warning of warnings) {

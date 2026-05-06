@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "minimums": {
+    "root-server": {
+      "lines": 16.56,
+      "functions": 19.75,
+      "branches": 0,
+      "statements": 16.56
+    },
+    "adapters": {
+      "lines": 75.94,
+      "functions": 83.35,
+      "branches": 0,
+      "statements": 75.94
+    },
+    "desktop": {
+      "lines": 36.81,
+      "functions": 31.81,
+      "branches": 62.48,
+      "statements": 36.81
+    }
+  },
+  "ratchet": {
+    "baselinePath": "scripts/quality-gate/coverage-baseline.json",
+    "allowedDropPercent": 0.5
+  }
+}

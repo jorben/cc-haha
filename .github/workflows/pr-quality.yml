@@ -25,9 +25,12 @@ jobs:
       adapter_checks: ${{ steps.policy.outputs.adapter_checks }}
       desktop_native_checks: ${{ steps.policy.outputs.desktop_native_checks }}
       docs_checks: ${{ steps.policy.outputs.docs_checks }}
+      coverage_checks: ${{ steps.policy.outputs.coverage_checks }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -58,6 +61,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -179,3 +184,51 @@ jobs:
 
       - name: Run docs checks
         run: npm ci && npm run docs:build
+
+  coverage-checks:
+    name: coverage-checks
+    needs: change-policy
+    if: needs.change-policy.outputs.coverage_checks == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install root dependencies
+        run: bun install
+
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: bun install
+
+      - name: Install adapter dependencies
+        working-directory: adapters
+        run: bun install
+
+      - name: Run coverage checks
+        env:
+          COVERAGE_BASE_REF: origin/${{ github.base_ref }}
+        run: bun run check:coverage
+
+      - name: Summarize coverage report
+        if: always()
+        run: |
+          latest_report="$(find artifacts/coverage -name coverage-report.md -print | sort | tail -n 1)"
+          if [ -n "$latest_report" ]; then
+            cat "$latest_report" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: artifacts/coverage/
+          retention-days: 14

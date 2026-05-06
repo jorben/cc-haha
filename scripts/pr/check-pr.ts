@@ -76,6 +76,12 @@ const labels = process.env.PR_LABELS?.split(',').map((label) => label.trim()).fi
 if (process.env.ALLOW_CLI_CORE_CHANGE === '1' && !labels.includes('allow-cli-core-change')) {
   labels.push('allow-cli-core-change')
 }
+if (process.env.ALLOW_MISSING_TESTS === '1' && !labels.includes('allow-missing-tests')) {
+  labels.push('allow-missing-tests')
+}
+if (process.env.ALLOW_COVERAGE_BASELINE_CHANGE === '1' && !labels.includes('allow-coverage-baseline-change')) {
+  labels.push('allow-coverage-baseline-change')
+}
 
 const result = evaluateChangePolicy(files, labels)
 
@@ -84,8 +90,11 @@ console.log(`  Files: ${files.length}`)
 console.log(`  Areas: ${result.areas.length ? result.areas.join(', ') : 'none'}`)
 
 if (result.blockingReason) {
-  console.error(`\nBlocked: ${result.blockingReason}`)
-  console.error('Set ALLOW_CLI_CORE_CHANGE=1 only after maintainer approval.')
+  console.error('\nBlocked:')
+  for (const reason of result.blockingReasons) {
+    console.error(`- ${reason}`)
+  }
+  console.error('Use ALLOW_CLI_CORE_CHANGE=1, ALLOW_MISSING_TESTS=1, or ALLOW_COVERAGE_BASELINE_CHANGE=1 only after maintainer approval.')
   process.exit(1)
 }
 

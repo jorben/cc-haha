@@ -39,9 +39,15 @@ This gate does not call real models, so every contributor can run it locally. It
 ```text
 artifacts/quality-runs/<timestamp>/report.md
 artifacts/quality-runs/<timestamp>/report.json
+artifacts/quality-runs/<timestamp>/junit.xml
+artifacts/quality-runs/<timestamp>/logs/*.log
+artifacts/coverage/<timestamp>/coverage-report.md
+artifacts/coverage/<timestamp>/coverage-report.json
 ```
 
 Include the commands you ran and the report summary in your PR description.
+
+`quality:pr` also runs quarantine and coverage gates. Coverage uses a ratchet policy: the current baseline lives in `scripts/quality-gate/coverage-baseline.json`, and CI compares against the base branch baseline when available. New PRs must not lower overall coverage beyond the allowed window. Changes to `coverage-baseline.json` or `coverage-thresholds.json` require the maintainer-only `allow-coverage-baseline-change` label. Quarantine entries must keep an owner, reviewAfter date, and exit criteria; once reviewAfter expires, the default server and coverage gates fail until maintainers review the entry.
 
 ## Area-Specific Checks
 
@@ -53,13 +59,17 @@ bun run check:desktop     # Desktop lint, Vitest, and production build
 bun run check:adapters    # IM adapter tests
 bun run check:native      # Desktop sidecars and Tauri native checks
 bun run check:docs        # Docs build, using npm ci + docs:build
+bun run check:quarantine  # Quarantine owners, exit criteria, and review windows
+bun run check:coverage    # Root, desktop, and adapter coverage reports plus ratchet enforcement
 ```
 
 Focused tests are fine while developing, but run `bun run quality:pr` before sending the PR.
 
+Production code changes must include matching tests. Changes under `desktop/src/**`, `src/server/**`, `src/tools/**`, `src/utils/**`, or `adapters/**` without a same-area test file are blocked unless a maintainer applies `allow-missing-tests`. Coverage baseline/threshold changes are also blocked unless a maintainer applies `allow-coverage-baseline-change`.
+
 ## Live Model Baseline
 
-`quality:baseline` runs real Coding Agent tasks: it starts the local server, creates isolated fixtures, asks a model through chat to fix code, runs tests, and saves transcripts, diffs, verification logs, and a report.
+`quality:baseline` runs real Coding Agent tasks: it starts the local server, creates isolated fixtures, asks a model through chat to fix code, runs tests, and saves transcripts, diffs, verification logs, and a report. It also runs provider live smoke: saved or active OpenAI-compatible providers validate connectivity, proxy conversion, and streaming proxy behavior; env-only provider smoke validates upstream connectivity and the transform pipeline.
 
 The default baseline command does not call real models:
 
@@ -91,6 +101,12 @@ Copy one of the listed values:
 bun run quality:gate --mode baseline --allow-live --provider-model minimax:main:minimax-main
 ```
 
+To run only provider smoke plus desktop agent-browser smoke, use:
+
+```bash
+bun run quality:smoke --provider-model minimax:main:minimax-main
+```
+
 You can run multiple models in one pass:
 
 ```bash
@@ -100,6 +116,16 @@ bun run quality:gate --mode baseline --allow-live \
 ```
 
 Provider selectors come from the providers saved in your local Desktop Settings > Providers page. Contributors do not need the maintainer's provider UUIDs or vendor accounts. They can add their own provider locally, run `bun run quality:providers`, and choose their own model.
+
+If you do not have a saved provider, you can run one unsaved provider smoke with environment variables:
+
+```bash
+QUALITY_GATE_PROVIDER_BASE_URL=https://example.com \
+QUALITY_GATE_PROVIDER_API_KEY=... \
+QUALITY_GATE_PROVIDER_MODEL=model-id \
+QUALITY_GATE_PROVIDER_API_FORMAT=openai_chat \
+bun run quality:gate --mode baseline --allow-live
+```
 
 ## When To Run The Baseline
 
@@ -121,7 +147,9 @@ Before a release, run release mode:
 bun run quality:gate --mode release --allow-live --provider-model <selector>:main
 ```
 
-Release mode composes PR checks, baseline catalog validation, live baseline cases, desktop smoke, and native checks. Reports are written to `artifacts/quality-runs/<timestamp>/`.
+Release mode composes PR checks, baseline catalog validation, live baseline cases, provider smoke, desktop smoke, and native checks. Reports are written to `artifacts/quality-runs/<timestamp>/`. The hosted release workflow now runs `quality:gate --mode pr` as a non-live preflight before the packaging matrix and uploads a `release-quality-gate` artifact; maintainers still need to run the live release gate explicitly with an available provider.
+
+In release mode, live lanes are not allowed to be silently skipped. Missing providers, model quota, or external account access will fail the gate and must be recorded as a release blocker.
 
 ## PR Workflow
 
@@ -131,7 +159,7 @@ Release mode composes PR checks, baseline catalog validation, live baseline case
 4. Run focused checks for the affected area.
 5. Run `bun run quality:pr`.
 6. Run the live baseline for high-risk changes.
-7. In the PR description, include user impact, verification commands, report summary, and known risks.
+7. In the PR description, include user impact, verification commands, coverage/quality report summary, and known risks.
 
 ## FAQ
 

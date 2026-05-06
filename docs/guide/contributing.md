@@ -39,9 +39,15 @@ bun run quality:pr
 ```text
 artifacts/quality-runs/<timestamp>/report.md
 artifacts/quality-runs/<timestamp>/report.json
+artifacts/quality-runs/<timestamp>/junit.xml
+artifacts/quality-runs/<timestamp>/logs/*.log
+artifacts/coverage/<timestamp>/coverage-report.md
+artifacts/coverage/<timestamp>/coverage-report.json
 ```
 
 PR 描述里请贴出你实际运行的命令和 summary。
+
+`quality:pr` 会执行 quarantine 和覆盖率门禁。覆盖率采用 ratchet 策略：当前 baseline 记录在 `scripts/quality-gate/coverage-baseline.json`，CI 会优先对比 base branch 的 baseline，新增 PR 不允许整体覆盖率下降超过允许窗口。`coverage-baseline.json` 或 `coverage-thresholds.json` 变更必须由维护者加 `allow-coverage-baseline-change` 后才能合并。Quarantine 条目必须有 owner、reviewAfter 和 exitCriteria；reviewAfter 过期后默认 server/coverage gate 会阻断，直到维护者处理。
 
 ## 按改动范围补充测试
 
@@ -53,13 +59,17 @@ bun run check:desktop     # 桌面端 lint、Vitest、生产构建
 bun run check:adapters    # IM adapter 测试
 bun run check:native      # 桌面 sidecar 与 Tauri native 检查
 bun run check:docs        # 文档构建，使用 npm ci + docs:build
+bun run check:quarantine  # quarantine owner、退出条件和复审日期
+bun run check:coverage    # root、desktop、adapters 覆盖率报告和 ratchet 门禁
 ```
 
 如果只改了很窄的文件，也可以先跑对应的定向测试，但 PR 前仍应跑 `bun run quality:pr`。
 
+生产代码改动必须带对应测试文件：`desktop/src/**`、`src/server/**`、`src/tools/**`、`src/utils/**`、`adapters/**` 变更如果没有同区域测试，会触发阻断。只有维护者确认不适合自动化测试时，才能使用 `allow-missing-tests`。覆盖率 baseline/threshold 变更同样需要维护者确认并加 `allow-coverage-baseline-change`。
+
 ## 真实模型 Baseline
 
-`quality:baseline` 用来跑真实 Coding Agent 任务：启动本地服务端、创建隔离 fixture、让模型通过聊天修代码、跑测试，并保存 transcript、diff、verification log 和报告。
+`quality:baseline` 用来跑真实 Coding Agent 任务：启动本地服务端、创建隔离 fixture、让模型通过聊天修代码、跑测试，并保存 transcript、diff、verification log 和报告。它还会对 provider 进行 live smoke：已保存或当前激活的 OpenAI-compatible provider 会验证连通性、proxy 转换和流式 proxy 结果；env-only provider smoke 只验证上游连通性和转换管线。
 
 默认命令不会调用真实模型：
 
@@ -91,6 +101,12 @@ Saved providers:
 bun run quality:gate --mode baseline --allow-live --provider-model minimax:main:minimax-main
 ```
 
+如果只需要跑 provider smoke 和桌面 agent-browser smoke，而不跑全部 baseline case，可以使用：
+
+```bash
+bun run quality:smoke --provider-model minimax:main:minimax-main
+```
+
 可以一次跑多个模型：
 
 ```bash
@@ -100,6 +116,16 @@ bun run quality:gate --mode baseline --allow-live \
 ```
 
 `provider` selector 来自桌面端「Settings > Providers」里保存的本机配置。别人 clone 代码后不需要知道你的 provider UUID，也不需要使用你的供应商；他们可以在自己的桌面端添加 provider 后运行 `bun run quality:providers` 选择自己的模型。
+
+如果没有保存 provider，也可以用环境变量跑一条 unsaved provider smoke：
+
+```bash
+QUALITY_GATE_PROVIDER_BASE_URL=https://example.com \
+QUALITY_GATE_PROVIDER_API_KEY=... \
+QUALITY_GATE_PROVIDER_MODEL=model-id \
+QUALITY_GATE_PROVIDER_API_FORMAT=openai_chat \
+bun run quality:gate --mode baseline --allow-live
+```
 
 ## 什么时候必须跑 Baseline
 
@@ -121,7 +147,9 @@ bun run quality:gate --mode baseline --allow-live \
 bun run quality:gate --mode release --allow-live --provider-model <selector>:main
 ```
 
-release 模式会组合 PR checks、baseline catalog、live baseline、desktop smoke 和 native checks。发版报告同样写入 `artifacts/quality-runs/<timestamp>/`。
+release 模式会组合 PR checks、baseline catalog、live baseline、desktop smoke 和 native checks。发版报告同样写入 `artifacts/quality-runs/<timestamp>/`。线上 release workflow 在打包矩阵前会先跑 `quality:gate --mode pr` 作为非 live 预检，并上传 `release-quality-gate` artifact；真实 live release gate 仍需要维护者用可用 provider 显式运行。
+
+release 模式下 live lane 不允许静默跳过。缺少 provider、真实模型额度或外部账号时，门禁会失败，并要求在发版记录里明确 blocker。
 
 ## PR 提交流程
 
@@ -131,7 +159,7 @@ release 模式会组合 PR checks、baseline catalog、live baseline、desktop s
 4. 运行相关定向测试。
 5. 运行 `bun run quality:pr`。
 6. 对高风险改动运行 live baseline。
-7. 在 PR 描述里写清楚用户影响、测试命令、报告 summary、已知风险。
+7. 在 PR 描述里写清楚用户影响、测试命令、覆盖率/质量报告 summary、已知风险。
 
 ## 常见问题
 
