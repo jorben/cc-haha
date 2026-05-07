@@ -88,8 +88,11 @@ describe('DirectoryPicker', () => {
 
     const trigger = screen.getByRole('button')
     const label = screen.getByText(longProjectName)
+    const triggerClasses = trigger.className.split(/\s+/)
     expect(trigger).toHaveAttribute('title', longPath)
-    expect(trigger.className).toContain('w-full')
+    expect(triggerClasses).toContain('max-w-full')
+    expect(triggerClasses).not.toContain('w-full')
+    expect(trigger.parentElement?.className).toContain('max-w-[320px]')
     expect(label.className).toContain('truncate')
   })
 

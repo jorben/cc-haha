@@ -257,11 +257,11 @@ export function RepositoryLaunchControls({
   }, [isLaunchReady, onLaunchReadyChange])
 
   const worktreeLabel = useWorktree ? t('repoLaunch.worktreeIsolated') : t('repoLaunch.worktreeCurrent')
-  const workbarButtonClassName = 'group inline-flex h-9 min-w-0 items-center gap-1.5 rounded-[7px] border border-transparent px-2.5 text-[13px] font-medium leading-none text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-border)] hover:bg-[var(--color-surface-container-lowest)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]/35 disabled:cursor-not-allowed disabled:opacity-50'
+  const workbarButtonClassName = 'group inline-flex h-9 max-w-full min-w-0 items-center gap-1.5 rounded-[7px] border border-transparent px-2.5 text-[13px] font-medium leading-none text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-container-lowest)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]/35 disabled:cursor-not-allowed disabled:opacity-50'
 
   return (
     <div ref={rootRef} className="flex min-w-0 flex-col gap-2">
-      <div className="flex min-h-[48px] min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-b-xl border-t border-[var(--color-border-separator)] bg-[var(--color-surface-container-low)] px-4 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
+      <div className="flex min-h-[48px] min-w-0 flex-wrap items-center justify-start gap-x-1.5 gap-y-1 rounded-b-xl border-t border-[var(--color-border-separator)] bg-[var(--color-surface-container-low)] px-4 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
         <DirectoryPicker value={workDir} onChange={onWorkDirChange} variant="workbar" isGitProject={isGitReady} />
 
         {loading && workDir && (
@@ -273,7 +273,7 @@ export function RepositoryLaunchControls({
 
         {isGitReady && (
           <>
-            <span className="hidden h-5 w-px shrink-0 bg-[var(--color-border-separator)] sm:block" aria-hidden="true" />
+            <span className="hidden h-4 w-px shrink-0 bg-[var(--color-border-separator)] opacity-70 sm:block" aria-hidden="true" />
             <button
               ref={branchButtonRef}
               type="button"
@@ -286,7 +286,7 @@ export function RepositoryLaunchControls({
                 setBranchMenuOpen((prev) => !prev)
                 setBranchFilter('')
               }}
-              className={`${workbarButtonClassName} flex-[0_1_260px]`}
+              className={`${workbarButtonClassName} max-w-[260px]`}
             >
               <GitBranch size={17} className="shrink-0 text-[var(--color-text-tertiary)] group-hover:text-[var(--color-text-secondary)]" />
               <span className="min-w-0 flex-1 truncate text-[var(--color-text-primary)]">
@@ -304,7 +304,7 @@ export function RepositoryLaunchControls({
               onClick={() => onUseWorktreeChange(!useWorktree)}
               className={`${workbarButtonClassName} ${
                 useWorktree
-                  ? 'border-[var(--color-border-focus)] bg-[var(--color-surface-container-lowest)] text-[var(--color-text-primary)] shadow-[inset_0_0_0_1px_var(--color-border-focus)]'
+                  ? 'bg-[var(--color-surface-container-lowest)] text-[var(--color-text-primary)]'
                   : ''
               }`}
             >
