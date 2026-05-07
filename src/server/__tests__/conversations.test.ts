@@ -1602,6 +1602,222 @@ describe('WebSocket Chat Integration', () => {
     }
   }, 20_000)
 
+  it('should keep the session idle in the UI while applying a runtime-only model switch', async () => {
+    const providerService = new ProviderService()
+    const provider = await providerService.addProvider({
+      presetId: 'custom',
+      name: 'Provider Idle Runtime',
+      apiKey: 'key-idle-runtime',
+      baseUrl: 'http://127.0.0.1:1/anthropic',
+      apiFormat: 'anthropic',
+      models: {
+        main: 'idle-main',
+        haiku: 'idle-haiku',
+        sonnet: 'idle-sonnet',
+        opus: 'idle-opus',
+      },
+    })
+
+    const createRes = await fetch(`${baseUrl}/api/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workDir: process.cwd() }),
+    })
+    expect(createRes.status).toBe(201)
+    const { sessionId } = await createRes.json() as { sessionId: string }
+
+    const originalStartSession = conversationService.startSession.bind(conversationService)
+    const startCalls: Array<{
+      sessionId: string
+      options: { permissionMode?: string; model?: string; effort?: string; providerId?: string | null } | undefined
+    }> = []
+
+    conversationService.startSession = (async function patchedStartSession(
+      sid: string,
+      workDir: string,
+      sdkUrl: string,
+      options?: { permissionMode?: string; model?: string; effort?: string; thinking?: 'enabled' | 'adaptive' | 'disabled'; providerId?: string | null },
+    ) {
+      startCalls.push({ sessionId: sid, options })
+      return originalStartSession(sid, workDir, sdkUrl, options)
+    }) as typeof conversationService.startSession
+
+    const ws = new WebSocket(`${wsUrl}/ws/${sessionId}`)
+    const messages: any[] = []
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error(`Timed out waiting for idle runtime switch connection for session ${sessionId}`))
+        }, 5000)
+        ws.onmessage = (event) => {
+          const msg = JSON.parse(event.data as string)
+          messages.push(msg)
+          if (msg.type === 'connected') {
+            clearTimeout(timeout)
+            ws.send(JSON.stringify({ type: 'prewarm_session' }))
+            resolve()
+          }
+          if (msg.type === 'error') {
+            clearTimeout(timeout)
+            reject(new Error(msg.message))
+          }
+        }
+        ws.onerror = () => {
+          clearTimeout(timeout)
+          reject(new Error(`WebSocket error for idle runtime switch session ${sessionId}`))
+        }
+      })
+
+      await waitUntil(
+        () => startCalls.length === 1 && conversationService.hasSession(sessionId),
+        `prewarmed CLI process for idle runtime switch ${sessionId}`,
+      )
+      await waitUntil(async () => {
+        const commandsRes = await fetch(`${baseUrl}/api/sessions/${sessionId}/slash-commands`)
+        if (!commandsRes.ok) return false
+        const { commands } = await commandsRes.json() as { commands?: Array<{ name: string }> }
+        return Array.isArray(commands) && commands.some((command) => command.name === 'help')
+      }, `prewarmed slash commands for idle runtime switch ${sessionId}`)
+
+      const switchStartIndex = messages.length
+      ws.send(JSON.stringify({
+        type: 'set_runtime_config',
+        providerId: provider.id,
+        modelId: 'idle-sonnet',
+      }))
+
+      await waitUntil(
+        async () => messages.slice(switchStartIndex).some((msg) => msg.type === 'status' && msg.state === 'idle'),
+        `idle runtime switch completion for ${sessionId}`,
+      )
+
+      expect(startCalls).toHaveLength(2)
+      expect(startCalls[1]).toMatchObject({
+        sessionId,
+        options: {
+          providerId: provider.id,
+          model: 'idle-sonnet',
+        },
+      })
+      expect(
+        messages
+          .slice(switchStartIndex)
+          .filter((msg) => msg.type === 'status')
+          .map((msg) => msg.state),
+      ).toEqual(['idle'])
+      expect(messages.slice(switchStartIndex).some((msg) => msg.type === 'error')).toBe(false)
+    } finally {
+      ws.close()
+      conversationService.startSession = originalStartSession
+      conversationService.stopSession(sessionId)
+    }
+  }, 20_000)
+
+  it('should keep the session idle in the UI while restarting for a bypass permission switch', async () => {
+    await fetch(`${baseUrl}/api/permissions/mode`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'default' }),
+    })
+
+    const createRes = await fetch(`${baseUrl}/api/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workDir: process.cwd() }),
+    })
+    expect(createRes.status).toBe(201)
+    const { sessionId } = await createRes.json() as { sessionId: string }
+
+    const originalStartSession = conversationService.startSession.bind(conversationService)
+    const startCalls: Array<{
+      sessionId: string
+      options: { permissionMode?: string; model?: string; effort?: string; providerId?: string | null } | undefined
+    }> = []
+
+    conversationService.startSession = (async function patchedStartSession(
+      sid: string,
+      workDir: string,
+      sdkUrl: string,
+      options?: { permissionMode?: string; model?: string; effort?: string; thinking?: 'enabled' | 'adaptive' | 'disabled'; providerId?: string | null },
+    ) {
+      startCalls.push({ sessionId: sid, options })
+      return originalStartSession(sid, workDir, sdkUrl, options)
+    }) as typeof conversationService.startSession
+
+    const ws = new WebSocket(`${wsUrl}/ws/${sessionId}`)
+    const messages: any[] = []
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error(`Timed out waiting for idle permission switch connection for session ${sessionId}`))
+        }, 5000)
+        ws.onmessage = (event) => {
+          const msg = JSON.parse(event.data as string)
+          messages.push(msg)
+          if (msg.type === 'connected') {
+            clearTimeout(timeout)
+            ws.send(JSON.stringify({ type: 'prewarm_session' }))
+            resolve()
+          }
+          if (msg.type === 'error') {
+            clearTimeout(timeout)
+            reject(new Error(msg.message))
+          }
+        }
+        ws.onerror = () => {
+          clearTimeout(timeout)
+          reject(new Error(`WebSocket error for idle permission switch session ${sessionId}`))
+        }
+      })
+
+      await waitUntil(
+        () => startCalls.length === 1 && conversationService.hasSession(sessionId),
+        `prewarmed CLI process for idle permission switch ${sessionId}`,
+      )
+      await waitUntil(async () => {
+        const commandsRes = await fetch(`${baseUrl}/api/sessions/${sessionId}/slash-commands`)
+        if (!commandsRes.ok) return false
+        const { commands } = await commandsRes.json() as { commands?: Array<{ name: string }> }
+        return Array.isArray(commands) && commands.some((command) => command.name === 'help')
+      }, `prewarmed slash commands for idle permission switch ${sessionId}`)
+
+      const switchStartIndex = messages.length
+      ws.send(JSON.stringify({
+        type: 'set_permission_mode',
+        mode: 'bypassPermissions',
+      }))
+
+      await waitUntil(
+        async () => messages.slice(switchStartIndex).some((msg) => msg.type === 'status' && msg.state === 'idle'),
+        `idle permission switch completion for ${sessionId}`,
+      )
+
+      expect(startCalls).toHaveLength(2)
+      expect(startCalls[1]).toMatchObject({
+        sessionId,
+        options: {
+          permissionMode: 'bypassPermissions',
+        },
+      })
+      expect(
+        messages
+          .slice(switchStartIndex)
+          .filter((msg) => msg.type === 'status')
+          .map((msg) => msg.state),
+      ).toEqual(['idle'])
+      expect(messages.slice(switchStartIndex).some((msg) => msg.type === 'error')).toBe(false)
+    } finally {
+      ws.close()
+      conversationService.startSession = originalStartSession
+      conversationService.stopSession(sessionId)
+      await fetch(`${baseUrl}/api/permissions/mode`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'default' }),
+      })
+    }
+  }, 20_000)
+
   it('should ignore stale persisted runtime provider ids when resuming old sessions', async () => {
     const providerService = new ProviderService()
     const activeProvider = await providerService.addProvider({
@@ -2050,6 +2266,142 @@ describe('WebSocket Chat Integration', () => {
     } finally {
       conversationService.startSession = originalStartSession
       conversationService.stopSession(sessionId)
+    }
+  }, 20_000)
+
+  it('should wait for an in-flight permission restart before sending the next user turn', async () => {
+    await fetch(`${baseUrl}/api/permissions/mode`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'default' }),
+    })
+
+    const createRes = await fetch(`${baseUrl}/api/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workDir: process.cwd() }),
+    })
+    expect(createRes.status).toBe(201)
+    const { sessionId } = await createRes.json() as { sessionId: string }
+
+    const originalStartSession = conversationService.startSession.bind(conversationService)
+    const originalSendMessage = conversationService.sendMessage.bind(conversationService)
+    const startCalls: Array<{
+      sessionId: string
+      options: { permissionMode?: string; model?: string; effort?: string; providerId?: string | null } | undefined
+    }> = []
+    const sendCalls: Array<{
+      content: string
+      startCallCount: number
+      permissionMode: string
+    }> = []
+
+    conversationService.startSession = (async function patchedStartSession(
+      sid: string,
+      workDir: string,
+      sdkUrl: string,
+      options?: { permissionMode?: string; model?: string; effort?: string; thinking?: 'enabled' | 'adaptive' | 'disabled'; providerId?: string | null },
+    ) {
+      startCalls.push({ sessionId: sid, options })
+      return originalStartSession(sid, workDir, sdkUrl, options)
+    }) as typeof conversationService.startSession
+
+    conversationService.sendMessage = (function patchedSendMessage(
+      sid: string,
+      content: string,
+      attachments?: any,
+    ) {
+      sendCalls.push({
+        content,
+        startCallCount: startCalls.length,
+        permissionMode: conversationService.getSessionPermissionMode(sid),
+      })
+      return originalSendMessage(sid, content, attachments)
+    }) as typeof conversationService.sendMessage
+
+    try {
+      const ws = new WebSocket(`${wsUrl}/ws/${sessionId}`)
+      let phase: 'boot' | 'turn1' | 'turn2' | 'done' = 'boot'
+
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          ws.close()
+          reject(new Error(`Timed out waiting for permission restart synchronization flow for session ${sessionId}`))
+        }, 15_000)
+
+        ws.onmessage = (event) => {
+          const msg = JSON.parse(event.data as string)
+
+          if (msg.type === 'connected' && phase === 'boot') {
+            ws.send(JSON.stringify({ type: 'user_message', content: 'first turn before permission switch' }))
+            phase = 'turn1'
+            return
+          }
+
+          if (msg.type === 'error') {
+            clearTimeout(timeout)
+            ws.close()
+            reject(new Error(msg.message))
+            return
+          }
+
+          if (msg.type === 'message_complete' && phase === 'turn1') {
+            ws.send(JSON.stringify({
+              type: 'set_permission_mode',
+              mode: 'bypassPermissions',
+            }))
+            ws.send(JSON.stringify({ type: 'user_message', content: 'second turn immediately after permission switch' }))
+            phase = 'turn2'
+            return
+          }
+
+          if (msg.type === 'message_complete' && phase === 'turn2') {
+            clearTimeout(timeout)
+            phase = 'done'
+            ws.close()
+            resolve()
+          }
+        }
+
+        ws.onerror = () => {
+          reject(new Error(`WebSocket error for permission restart synchronization session ${sessionId}`))
+        }
+      })
+
+      expect(startCalls).toHaveLength(2)
+      expect(startCalls[0]).toMatchObject({
+        sessionId,
+        options: {
+          permissionMode: 'default',
+        },
+      })
+      expect(startCalls[1]).toMatchObject({
+        sessionId,
+        options: {
+          permissionMode: 'bypassPermissions',
+        },
+      })
+      expect(sendCalls).toMatchObject([
+        {
+          content: 'first turn before permission switch',
+          startCallCount: 1,
+          permissionMode: 'default',
+        },
+        {
+          content: 'second turn immediately after permission switch',
+          startCallCount: 2,
+          permissionMode: 'bypassPermissions',
+        },
+      ])
+    } finally {
+      conversationService.startSession = originalStartSession
+      conversationService.sendMessage = originalSendMessage
+      conversationService.stopSession(sessionId)
+      await fetch(`${baseUrl}/api/permissions/mode`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'default' }),
+      })
     }
   }, 20_000)
 })

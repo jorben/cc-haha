@@ -447,7 +447,9 @@ function handleSetPermissionMode(
     (message.mode === 'bypassPermissions' || conversationService.getSessionPermissionMode(sessionId) === 'bypassPermissions')
 
   if (needsRestart) {
-    void restartSessionWithPermissionMode(ws, sessionId, message.mode)
+    void enqueueRuntimeTransition(sessionId, () =>
+      restartSessionWithPermissionMode(ws, sessionId, message.mode),
+    )
     return
   }
 
@@ -517,8 +519,6 @@ async function restartSessionWithPermissionMode(
   mode: string,
 ): Promise<void> {
   try {
-    sendMessage(ws, { type: 'status', state: 'thinking', verb: 'Restarting session with new permissions...' })
-
     // Persist the new mode first so it's read on restart
     await settingsService.setPermissionMode(mode)
 
@@ -561,12 +561,6 @@ async function restartSessionWithRuntimeConfig(
   sessionId: string,
 ): Promise<void> {
   try {
-    sendMessage(ws, {
-      type: 'status',
-      state: 'thinking',
-      verb: 'Switching provider and model...',
-    })
-
     const workDir = conversationService.getSessionWorkDir(sessionId)
     conversationService.stopSession(sessionId)
 
