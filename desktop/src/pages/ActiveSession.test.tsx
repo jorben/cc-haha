@@ -75,6 +75,57 @@ afterEach(() => {
 })
 
 describe('ActiveSession task polling', () => {
+  it('treats a persisted historical session as non-empty before messages finish loading', () => {
+    const sessionId = 'history-loading-session'
+
+    useSessionStore.setState({
+      sessions: [{
+        id: sessionId,
+        title: 'History Loading Session',
+        createdAt: '2026-05-07T00:00:00.000Z',
+        modifiedAt: '2026-05-07T00:00:00.000Z',
+        messageCount: 2,
+        projectPath: '/workspace/project',
+        workDir: '/workspace/project',
+        workDirExists: true,
+      }],
+      activeSessionId: sessionId,
+      isLoading: false,
+      error: null,
+    })
+    useTabStore.setState({
+      tabs: [{ sessionId, title: 'History Loading Session', type: 'session', status: 'idle' }],
+      activeTabId: sessionId,
+    })
+    useChatStore.setState({
+      sessions: {
+        [sessionId]: {
+          messages: [],
+          chatState: 'idle',
+          connectionState: 'connected',
+          streamingText: '',
+          streamingToolInput: '',
+          activeToolUseId: null,
+          activeToolName: null,
+          activeThinkingId: null,
+          pendingPermission: null,
+          pendingComputerUsePermission: null,
+          tokenUsage: { input_tokens: 0, output_tokens: 0 },
+          elapsedSeconds: 0,
+          statusVerb: '',
+          slashCommands: [],
+          agentTaskNotifications: {},
+          elapsedTimer: null,
+        },
+      },
+    })
+
+    render(<ActiveSession />)
+
+    expect(screen.getByTestId('message-list')).toBeInTheDocument()
+    expect(screen.getByTestId('chat-input')).toHaveAttribute('data-variant', 'default')
+  })
+
   it('refreshes CLI tasks repeatedly while a turn is active', async () => {
     vi.useFakeTimers()
 

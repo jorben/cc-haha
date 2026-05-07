@@ -96,7 +96,6 @@ export function ChatInput({ variant = 'default', compact = false }: ChatInputPro
   const chatState = sessionState?.chatState ?? 'idle'
   const slashCommands = sessionState?.slashCommands ?? []
   const composerPrefill = sessionState?.composerPrefill ?? null
-  const messageCount = sessionState?.messages?.length ?? 0
   const runtimeSelection = useSessionRuntimeStore((state) =>
     activeTabId ? state.selections[activeTabId] : undefined,
   )
@@ -106,9 +105,10 @@ export function ChatInput({ variant = 'default', compact = false }: ChatInputPro
     : undefined
   const runtimeModelLabel = runtimeSelection?.modelId ?? currentModel?.name ?? currentModel?.id
   const activeSession = useSessionStore((state) => activeTabId ? state.sessions.find((session) => session.id === activeTabId) ?? null : null)
+  const loadedMessageCount = sessionState?.messages?.length ?? 0
+  const messageCount = Math.max(loadedMessageCount, activeSession?.messageCount ?? 0)
   const memberInfo = useTeamStore((s) => activeTabId ? s.getMemberBySessionId(activeTabId) : null)
   const [gitInfo, setGitInfo] = useState<GitInfo | null>(null)
-  const hasMessages = useChatStore((s) => activeTabId ? (s.sessions[activeTabId]?.messages?.length ?? 0) > 0 : false)
   const workspaceReferences = useWorkspaceChatContextStore(
     (s) => activeTabId ? s.referencesBySession[activeTabId] ?? EMPTY_WORKSPACE_REFERENCES : EMPTY_WORKSPACE_REFERENCES,
   )
@@ -122,7 +122,7 @@ export function ChatInput({ variant = 'default', compact = false }: ChatInputPro
   const hasWorkspaceReferences = !isMemberSession && workspaceReferences.length > 0
   const isHeroComposer = variant === 'hero' && !isMemberSession && !compact
   const resolvedWorkDir = activeSession?.workDir || gitInfo?.workDir || undefined
-  const showLaunchControls = !isMemberSession && !hasMessages
+  const showLaunchControls = !isMemberSession && messageCount === 0
   const activeLaunchWorkDir = showLaunchControls ? (launchWorkDir || resolvedWorkDir || '') : (resolvedWorkDir || '')
   const pendingSlashUiAction = !isMemberSession && input.trim().startsWith('/')
     ? resolveSlashUiAction(input.trim().slice(1))
@@ -965,7 +965,7 @@ export function ChatInput({ variant = 'default', compact = false }: ChatInputPro
 
         {!isMemberSession && (
           <div className={compact ? 'mt-2 flex min-w-0 justify-center px-1' : 'mt-3 px-1'}>
-            {hasMessages ? (
+            {messageCount > 0 ? (
               <ProjectContextChip
                 workDir={resolvedWorkDir}
                 repoName={gitInfo?.repoName || null}
