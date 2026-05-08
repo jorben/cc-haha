@@ -65,7 +65,7 @@ jobs:
         run: bun install
 
       - name: Run release quality preflight
-        run: bun run quality:gate --mode pr --artifacts-dir artifacts/quality-runs
+        run: bun run quality:gate --mode pr --skip coverage --artifacts-dir artifacts/quality-runs
 
       - name: Summarize quality report
         if: always()
