@@ -775,6 +775,7 @@ function markPrewarmed(sessionId: string) {
 function cacheSessionInitMetadata(sessionId: string, cliMsg: any) {
   if (cliMsg?.type !== 'system' || cliMsg.subtype !== 'init') return
   if (typeof cliMsg.cwd === 'string' && cliMsg.cwd.trim()) {
+    conversationService.updateSessionWorkDir(sessionId, cliMsg.cwd)
     void (async () => {
       await sessionService.appendSessionMetadata(sessionId, {
         workDir: cliMsg.cwd,

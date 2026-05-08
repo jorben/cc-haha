@@ -520,6 +520,12 @@ export class ConversationService {
     return session?.workDir || ''
   }
 
+  updateSessionWorkDir(sessionId: string, workDir: string): void {
+    const session = this.sessions.get(sessionId)
+    if (!session || !workDir.trim()) return
+    session.workDir = workDir
+  }
+
   getSessionPermissionMode(sessionId: string): string {
     const session = this.sessions.get(sessionId)
     return session?.permissionMode || 'default'

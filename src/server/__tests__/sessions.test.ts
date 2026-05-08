@@ -932,6 +932,45 @@ describe('SessionService', () => {
     await expect(fs.access(worktreeFile)).resolves.toBeNull()
   })
 
+  it('should move repository metadata to the CLI worktree transcript before deleting placeholders', async () => {
+    const workDir = await createCleanGitRepo(tmpDir)
+    const { sessionId } = await service.createSession(
+      workDir,
+      { branch: 'main', worktree: true },
+    )
+    const initialLaunchInfo = await service.getSessionLaunchInfo(sessionId)
+    const worktreePath = initialLaunchInfo?.repository?.worktreePath
+    expect(worktreePath).toBeTruthy()
+
+    const worktreeFile = await writeSessionFile(sanitizePath(worktreePath!), sessionId, [
+      makeSnapshotEntry(),
+      {
+        type: 'system',
+        subtype: 'init',
+        cwd: worktreePath,
+        timestamp: '2026-01-01T00:00:01.000Z',
+      },
+      makeUserEntry('Hello from worktree'),
+    ])
+
+    await service.appendSessionMetadata(sessionId, {
+      workDir: worktreePath!,
+    })
+    const removed = await service.deletePlaceholderSessionFiles(sessionId, worktreePath!)
+    const launchInfo = await service.getSessionLaunchInfo(sessionId)
+
+    expect(removed).toBe(1)
+    await expect(fs.access(worktreeFile)).resolves.toBeNull()
+    expect(launchInfo?.workDir).toBe(worktreePath)
+    expect(launchInfo?.repository).toMatchObject({
+      requestedWorkDir: await fs.realpath(workDir),
+      branch: 'main',
+      worktree: true,
+      worktreePath,
+      worktreeSlug: initialLaunchInfo?.repository?.worktreeSlug,
+    })
+  })
+
   it('should recover workDir from transcript cwd when session-meta is missing', async () => {
     const sessionId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
     await writeSessionFile('-tmp-project', sessionId, [

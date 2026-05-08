@@ -803,12 +803,11 @@ export class SessionService {
    * Find the .jsonl file for a given session ID.
    * Searches across all project directories since sessions may belong to any project.
    */
-  async findSessionFile(
+  private async findSessionFiles(
     sessionId: string
-  ): Promise<{ filePath: string; projectDir: string } | null> {
-    // Validate sessionId format to prevent path traversal
+  ): Promise<Array<{ filePath: string; projectDir: string }>> {
     if (!this.isValidSessionId(sessionId)) {
-      return null
+      return []
     }
 
     const projectsDir = this.getProjectsDir()
@@ -817,20 +816,27 @@ export class SessionService {
     try {
       projectDirs = await fs.readdir(projectsDir)
     } catch {
-      return null
+      return []
     }
 
+    const matches: Array<{ filePath: string; projectDir: string }> = []
     for (const dir of projectDirs) {
       const filePath = path.join(projectsDir, dir, `${sessionId}.jsonl`)
       try {
         await fs.access(filePath)
-        return { filePath, projectDir: dir }
+        matches.push({ filePath, projectDir: dir })
       } catch {
         continue
       }
     }
 
-    return null
+    return matches
+  }
+
+  async findSessionFile(
+    sessionId: string
+  ): Promise<{ filePath: string; projectDir: string } | null> {
+    return (await this.findSessionFiles(sessionId))[0] ?? null
   }
 
   private isValidSessionId(id: string): boolean {
@@ -1460,12 +1466,25 @@ export class SessionService {
       repository?: PreparedSessionWorkspace['repository']
     }
   ): Promise<void> {
-    const found = await this.findSessionFile(sessionId)
-    if (!found) return
+    const matches = await this.findSessionFiles(sessionId)
+    if (matches.length === 0) return
 
-    const entries = await this.readJsonlFile(found.filePath)
-    const repository = metadata.repository ?? this.resolveRepositoryFromEntries(entries)
-    await this.appendJsonlEntry(found.filePath, {
+    let repository = metadata.repository
+    if (!repository) {
+      for (const match of matches) {
+        const candidate = this.resolveRepositoryFromEntries(await this.readJsonlFile(match.filePath))
+        if (candidate) {
+          repository = candidate
+          break
+        }
+      }
+    }
+
+    const targetProjectDir = this.sanitizePath(metadata.workDir)
+    const targetFilePath = path.join(this.getProjectsDir(), targetProjectDir, `${sessionId}.jsonl`)
+    await fs.mkdir(path.dirname(targetFilePath), { recursive: true })
+
+    await this.appendJsonlEntry(targetFilePath, {
       type: 'session-meta',
       isMeta: true,
       workDir: metadata.workDir,
@@ -1474,7 +1493,7 @@ export class SessionService {
     })
 
     if (metadata.customTitle) {
-      await this.appendJsonlEntry(found.filePath, {
+      await this.appendJsonlEntry(targetFilePath, {
         type: 'custom-title',
         customTitle: metadata.customTitle,
         timestamp: new Date().toISOString(),
