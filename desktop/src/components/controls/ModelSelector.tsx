@@ -19,6 +19,8 @@ type ProviderChoice = {
 type Props = {
   value?: string
   onChange?: (modelId: string) => void
+  runtimeSelection?: RuntimeSelection
+  onRuntimeSelectionChange?: (selection: RuntimeSelection) => void
   runtimeKey?: string
   disabled?: boolean
   compact?: boolean
@@ -104,6 +106,8 @@ function resolveDefaultRuntimeSelection(
 export function ModelSelector({
   value,
   onChange,
+  runtimeSelection: controlledRuntimeSelection,
+  onRuntimeSelectionChange,
   runtimeKey,
   disabled = false,
   compact = false,
@@ -138,7 +142,9 @@ export function ModelSelector({
   ]
 
   const isControlled = value !== undefined
-  const isRuntimeScoped = !isControlled && runtimeKey !== undefined
+  const isRuntimeScoped =
+    !isControlled &&
+    (runtimeKey !== undefined || onRuntimeSelectionChange !== undefined)
 
   useEffect(() => {
     if (!isRuntimeScoped || providersLoading || requestedProvidersRef.current) return
@@ -188,7 +194,7 @@ export function ModelSelector({
     : storeModel
 
   const activeRuntimeSelection = isRuntimeScoped
-    ? runtimeSelection ?? resolveDefaultRuntimeSelection(
+    ? controlledRuntimeSelection ?? runtimeSelection ?? resolveDefaultRuntimeSelection(
       activeId,
       activeProviderName,
       providers,
@@ -218,10 +224,12 @@ export function ModelSelector({
     : null
 
   const handleRuntimeSelect = (selection: RuntimeSelection) => {
-    if (!runtimeKey) return
-    useSessionRuntimeStore.getState().setSelection(runtimeKey, selection)
-    if (runtimeKey !== DRAFT_RUNTIME_SELECTION_KEY) {
-      useChatStore.getState().setSessionRuntime(runtimeKey, selection)
+    onRuntimeSelectionChange?.(selection)
+    if (runtimeKey) {
+      useSessionRuntimeStore.getState().setSelection(runtimeKey, selection)
+      if (runtimeKey !== DRAFT_RUNTIME_SELECTION_KEY) {
+        useChatStore.getState().setSessionRuntime(runtimeKey, selection)
+      }
     }
     setOpen(false)
   }

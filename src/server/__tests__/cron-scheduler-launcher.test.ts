@@ -9,11 +9,14 @@ import {
   resolveCronProjectRoot,
 } from '../services/cronScheduler.js'
 import { CronService } from '../services/cronService.js'
+import { ProviderService } from '../services/providerService.js'
 
 const originalConfigDir = process.env.CLAUDE_CONFIG_DIR
 const originalPath = process.env.PATH
 const originalClaudeCliPath = process.env.CLAUDE_CLI_PATH
 const originalClaudeAppRoot = process.env.CLAUDE_APP_ROOT
+const originalAnthropicBaseUrl = process.env.ANTHROPIC_BASE_URL
+const originalAnthropicModel = process.env.ANTHROPIC_MODEL
 
 const isWindows = process.platform === 'win32'
 const unixOnly = isWindows ? it.skip : it
@@ -61,6 +64,16 @@ function restoreEnv(): void {
     process.env.CLAUDE_APP_ROOT = originalClaudeAppRoot
   } else {
     delete process.env.CLAUDE_APP_ROOT
+  }
+  if (originalAnthropicBaseUrl) {
+    process.env.ANTHROPIC_BASE_URL = originalAnthropicBaseUrl
+  } else {
+    delete process.env.ANTHROPIC_BASE_URL
+  }
+  if (originalAnthropicModel) {
+    process.env.ANTHROPIC_MODEL = originalAnthropicModel
+  } else {
+    delete process.env.ANTHROPIC_MODEL
   }
 }
 
@@ -197,5 +210,86 @@ describe('cron scheduler launcher resolution', () => {
       .then(() => true)
       .catch(() => false)
     expect(bunWasCalled).toBe(false)
+  })
+
+  unixOnly('executeTask passes provider-scoped model runtime to the sidecar', async () => {
+    const appRoot = path.join(tmpDir, 'app-root')
+    const sidecarPath = path.join(tmpDir, 'claude-sidecar')
+    const sidecarArgsPath = path.join(tmpDir, 'sidecar.args')
+    const sidecarEnvPath = path.join(tmpDir, 'sidecar.env')
+
+    await fs.mkdir(appRoot, { recursive: true })
+    await fs.writeFile(
+      sidecarPath,
+      [
+        '#!/bin/sh',
+        `printf '%s\\n' "$@" > "${sidecarArgsPath}"`,
+        `env | sort > "${sidecarEnvPath}"`,
+        '/bin/cat >/dev/null',
+        'printf \'%s\\n\' \'{"type":"result","result":"provider ok"}\'',
+        'exit 0',
+        '',
+      ].join('\n'),
+      'utf-8',
+    )
+    await fs.chmod(sidecarPath, 0o755)
+
+    process.env.CLAUDE_CLI_PATH = sidecarPath
+    process.env.CLAUDE_APP_ROOT = appRoot
+    process.env.ANTHROPIC_BASE_URL = 'https://stale-parent.example'
+    process.env.ANTHROPIC_MODEL = 'stale-parent-model'
+
+    const provider = await new ProviderService().addProvider({
+      presetId: 'custom',
+      name: 'Provider A',
+      apiKey: 'provider-key',
+      baseUrl: 'https://api.provider.example',
+      apiFormat: 'openai_chat',
+      models: {
+        main: 'provider-main',
+        haiku: 'provider-fast',
+        sonnet: 'provider-main',
+        opus: '',
+      },
+    })
+    const cronService = new CronService()
+    const scheduler = new CronScheduler(cronService)
+    const task = await cronService.createTask({
+      cron: '* * * * *',
+      prompt: 'cron provider test',
+      name: 'Provider Task',
+      recurring: true,
+      folderPath: tmpDir,
+      model: 'provider-fast',
+      providerId: provider.id,
+    })
+
+    const run = await scheduler.executeTask(task)
+
+    expect(run.status).toBe('completed')
+    expect(run.output).toBe('provider ok')
+
+    const sidecarArgs = (await fs.readFile(sidecarArgsPath, 'utf-8'))
+      .trim()
+      .split('\n')
+    expect(sidecarArgs).toContain('--model')
+    expect(sidecarArgs[sidecarArgs.indexOf('--model') + 1]).toBe('provider-fast')
+
+    const env = Object.fromEntries(
+      (await fs.readFile(sidecarEnvPath, 'utf-8'))
+        .trim()
+        .split('\n')
+        .map((line) => {
+          const index = line.indexOf('=')
+          return [line.slice(0, index), line.slice(index + 1)]
+        }),
+    )
+    expect(env.ANTHROPIC_BASE_URL).toBe(
+      `http://127.0.0.1:3456/proxy/providers/${provider.id}`,
+    )
+    expect(env.ANTHROPIC_API_KEY).toBe('proxy-managed')
+    expect(env.ANTHROPIC_MODEL).toBe('provider-fast')
+    expect(env.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST).toBe('1')
+    expect(env.CLAUDE_CODE_ENTRYPOINT).toBeUndefined()
   })
 })
