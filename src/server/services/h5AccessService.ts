@@ -1,10 +1,6 @@
-import * as fs from 'node:fs/promises'
-import * as os from 'node:os'
-import * as path from 'node:path'
 import { createHash, randomBytes } from 'node:crypto'
 import { ApiError } from '../middleware/errorHandler.js'
-import { normalizeJsonObject, readRecoverableJsonFile } from './recoverableJsonFile.js'
-import { ensurePersistentStorageUpgraded } from './persistentStorageMigrations.js'
+import { ManagedSettingsService } from './managedSettingsService.js'
 
 export type H5AccessSettings = {
   enabled: boolean
@@ -29,6 +25,8 @@ const DEFAULT_STORED_SETTINGS: StoredH5AccessSettings = {
   allowedOrigins: [],
   publicBaseUrl: null,
 }
+
+const TOKEN_HASH_RE = /^[a-f0-9]{64}$/
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -149,97 +147,40 @@ function normalizeStoredSettings(value: unknown): StoredH5AccessSettings {
     }
   }
 
+  const tokenHash = typeof value.tokenHash === 'string' && TOKEN_HASH_RE.test(value.tokenHash)
+    ? value.tokenHash
+    : null
+
   return {
-    enabled: value.enabled === true,
-    tokenHash: typeof value.tokenHash === 'string' ? value.tokenHash : null,
-    tokenPreview: typeof value.tokenPreview === 'string' ? value.tokenPreview : null,
+    enabled: value.enabled === true && tokenHash !== null,
+    tokenHash,
+    tokenPreview: tokenHash && typeof value.tokenPreview === 'string' ? value.tokenPreview : null,
     allowedOrigins,
     publicBaseUrl,
   }
 }
 
 export class H5AccessService {
-  private static writeLocks = new Map<string, Promise<void>>()
-
-  private getConfigDir(): string {
-    return process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude')
-  }
-
-  private getSettingsPath(): string {
-    return path.join(this.getConfigDir(), 'cc-haha', 'settings.json')
-  }
-
-  private async withWriteLock<T>(
-    filePath: string,
-    task: () => Promise<T>,
-  ): Promise<T> {
-    const previousWrite = H5AccessService.writeLocks.get(filePath) ?? Promise.resolve()
-    const nextWrite = previousWrite.catch(() => {}).then(task)
-    const trackedWrite = nextWrite.then(() => {}, () => {})
-
-    H5AccessService.writeLocks.set(filePath, trackedWrite)
-
-    try {
-      return await nextWrite
-    } finally {
-      if (H5AccessService.writeLocks.get(filePath) === trackedWrite) {
-        H5AccessService.writeLocks.delete(filePath)
-      }
-    }
-  }
-
-  private async readManagedSettings(): Promise<Record<string, unknown>> {
-    await ensurePersistentStorageUpgraded()
-    return readRecoverableJsonFile({
-      filePath: this.getSettingsPath(),
-      label: 'cc-haha managed settings',
-      defaultValue: {},
-      normalize: normalizeJsonObject,
-    })
-  }
-
-  private async writeManagedSettings(settings: Record<string, unknown>): Promise<void> {
-    const filePath = this.getSettingsPath()
-    const dir = path.dirname(filePath)
-    const contents = JSON.stringify(settings, null, 2) + '\n'
-    const tmpFile = `${filePath}.tmp.${process.pid}.${Date.now()}.${randomBytes(6).toString('hex')}`
-
-    await fs.mkdir(dir, { recursive: true })
-
-    try {
-      await fs.writeFile(tmpFile, contents, 'utf-8')
-      await fs.rename(tmpFile, filePath)
-    } catch (error) {
-      await fs.unlink(tmpFile).catch(() => {})
-      throw ApiError.internal(`Failed to write settings.json: ${error}`)
-    }
-  }
+  private managedSettingsService = new ManagedSettingsService()
 
   private async readStoredSettings(): Promise<{
     managedSettings: Record<string, unknown>
     h5Access: StoredH5AccessSettings
   }> {
-    const managedSettings = await this.readManagedSettings()
+    const managedSettings = await this.managedSettingsService.readSettings()
     return {
       managedSettings,
       h5Access: normalizeStoredSettings(managedSettings.h5Access),
     }
   }
 
-  private async saveStoredSettings(
-    managedSettings: Record<string, unknown>,
-    h5Access: StoredH5AccessSettings,
-  ): Promise<void> {
-    await this.writeManagedSettings({
-      ...managedSettings,
-      h5Access,
-    })
-  }
-
   private async setToken(
     managedSettings: Record<string, unknown>,
     current: StoredH5AccessSettings,
-  ): Promise<H5AccessEnableResult> {
+  ): Promise<{
+    settings: Record<string, unknown>
+    result: H5AccessEnableResult
+  }> {
     const token = createToken()
     const nextSettings: StoredH5AccessSettings = {
       ...current,
@@ -248,11 +189,15 @@ export class H5AccessService {
       tokenPreview: createTokenPreview(token),
     }
 
-    await this.saveStoredSettings(managedSettings, nextSettings)
-
     return {
-      settings: toPublicSettings(nextSettings),
-      token,
+      settings: {
+        ...managedSettings,
+        h5Access: nextSettings,
+      },
+      result: {
+        settings: toPublicSettings(nextSettings),
+        token,
+      },
     }
   }
 
@@ -262,15 +207,14 @@ export class H5AccessService {
   }
 
   async enable(): Promise<H5AccessEnableResult> {
-    return this.withWriteLock(this.getSettingsPath(), async () => {
-      const { managedSettings, h5Access } = await this.readStoredSettings()
-      return this.setToken(managedSettings, h5Access)
+    return this.managedSettingsService.updateSettings(async (current) => {
+      return this.setToken(current, normalizeStoredSettings(current.h5Access))
     })
   }
 
   async disable(): Promise<H5AccessSettings> {
-    return this.withWriteLock(this.getSettingsPath(), async () => {
-      const { managedSettings, h5Access } = await this.readStoredSettings()
+    return this.managedSettingsService.updateSettings(async (current) => {
+      const h5Access = normalizeStoredSettings(current.h5Access)
       const nextSettings: StoredH5AccessSettings = {
         ...h5Access,
         enabled: false,
@@ -278,15 +222,19 @@ export class H5AccessService {
         tokenPreview: null,
       }
 
-      await this.saveStoredSettings(managedSettings, nextSettings)
-      return toPublicSettings(nextSettings)
+      return {
+        settings: {
+          ...current,
+          h5Access: nextSettings,
+        },
+        result: toPublicSettings(nextSettings),
+      }
     })
   }
 
   async regenerateToken(): Promise<H5AccessEnableResult> {
-    return this.withWriteLock(this.getSettingsPath(), async () => {
-      const { managedSettings, h5Access } = await this.readStoredSettings()
-      return this.setToken(managedSettings, h5Access)
+    return this.managedSettingsService.updateSettings(async (current) => {
+      return this.setToken(current, normalizeStoredSettings(current.h5Access))
     })
   }
 
@@ -294,8 +242,8 @@ export class H5AccessService {
     allowedOrigins?: string[]
     publicBaseUrl?: string | null
   }): Promise<H5AccessSettings> {
-    return this.withWriteLock(this.getSettingsPath(), async () => {
-      const { managedSettings, h5Access } = await this.readStoredSettings()
+    return this.managedSettingsService.updateSettings(async (current) => {
+      const h5Access = normalizeStoredSettings(current.h5Access)
       const nextSettings: StoredH5AccessSettings = {
         ...h5Access,
         allowedOrigins: input.allowedOrigins === undefined
@@ -306,8 +254,13 @@ export class H5AccessService {
           : normalizePublicBaseUrl(input.publicBaseUrl),
       }
 
-      await this.saveStoredSettings(managedSettings, nextSettings)
-      return toPublicSettings(nextSettings)
+      return {
+        settings: {
+          ...current,
+          h5Access: nextSettings,
+        },
+        result: toPublicSettings(nextSettings),
+      }
     })
   }
 

@@ -3,6 +3,7 @@ import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { H5AccessService } from '../services/h5AccessService.js'
+import { ProviderService } from '../services/providerService.js'
 
 let tmpDir: string
 let originalConfigDir: string | undefined
@@ -153,5 +154,59 @@ describe('H5AccessService', () => {
     await expect(service.isOriginAllowed('https://example.com')).resolves.toBe(true)
     await expect(service.isOriginAllowed('https://other.example.com')).resolves.toBe(false)
     await expect(service.isOriginAllowed('notaurl')).resolves.toBe(false)
+  })
+
+  test('malformed persisted enabled state without token hash is treated as disabled', async () => {
+    await fs.mkdir(path.dirname(getManagedSettingsPath()), { recursive: true })
+    await fs.writeFile(
+      getManagedSettingsPath(),
+      JSON.stringify({
+        h5Access: {
+          enabled: true,
+          allowedOrigins: ['https://example.com/path'],
+          publicBaseUrl: 'https://public.example.com',
+        },
+      }),
+      'utf-8',
+    )
+
+    const service = new H5AccessService()
+
+    await expect(service.getSettings()).resolves.toEqual({
+      enabled: false,
+      tokenPreview: null,
+      allowedOrigins: ['https://example.com'],
+      publicBaseUrl: 'https://public.example.com',
+    })
+    await expect(service.validateToken('anything')).resolves.toBe(false)
+    await expect(service.isOriginAllowed('https://example.com')).resolves.toBe(false)
+  })
+
+  test('concurrent h5 enable and provider managed settings update preserve both fields', async () => {
+    const h5Service = new H5AccessService()
+    const providerService = new ProviderService()
+
+    await Promise.all([
+      h5Service.enable(),
+      providerService.updateManagedSettings({
+        env: {
+          ANTHROPIC_MODEL: 'keep-me',
+        },
+      }),
+    ])
+
+    const saved = JSON.parse(await fs.readFile(getManagedSettingsPath(), 'utf-8')) as {
+      env?: {
+        ANTHROPIC_MODEL?: string
+      }
+      h5Access?: {
+        enabled?: boolean
+        tokenHash?: string | null
+      }
+    }
+
+    expect(saved.env?.ANTHROPIC_MODEL).toBe('keep-me')
+    expect(saved.h5Access?.enabled).toBe(true)
+    expect(saved.h5Access?.tokenHash).toEqual(expect.any(String))
   })
 })
