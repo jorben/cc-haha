@@ -38,6 +38,9 @@ const claudeHome = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude')
 const runtimeStateRoot = join(claudeHome, '.runtime')
 const venvRoot = join(runtimeStateRoot, 'venv')
 const installStampPath = join(runtimeStateRoot, 'requirements.sha256')
+// 记录上次创建 venv 时所用的 config.pythonPath 原值。读取该文件来判断当前
+// venv 是否仍与最新的自定义路径配置一致。
+const baseInterpreterMarkerPath = join(runtimeStateRoot, 'venv-base-interpreter.txt')
 
 const isWindows = process.platform === 'win32'
 const REQUIREMENTS_CONTENT = isWindows ? REQUIREMENTS_WIN32 : REQUIREMENTS_DARWIN
@@ -78,28 +81,28 @@ async function pathExists(target: string): Promise<boolean> {
 }
 
 /**
- * 通过读取 venv 自身的 pyvenv.cfg（标准 Python venv 配置文件），判断该 venv
- * 是否由指定的解释器创建。`home = ...` 字段记录了创建该 venv 时所用 Python
- * 可执行文件所在目录。
+ * 判断现有 venv 是否与当前 config.pythonPath 配置一致。
  *
- * 仅在用户配置了自定义 Python 路径时调用——未配置自定义路径的老用户不会进入
- * 此分支，原有行为完全保留。
+ * 通过 marker 文件记录上次 setup 时所用的解释器路径——这比解析 pyvenv.cfg
+ * 可靠得多：当用户自定义 Python 自身在一个 venv 里时（conda/pyenv/手工 venv
+ * 都是这种情况），Python 的 venv 模块会跳过外层 venv 直接指向 base 解释器，
+ * 导致 pyvenv.cfg 的 home 字段记录的是 base 而非用户提供的那个路径。
  *
- * 读取失败 / 字段缺失时返回 true，避免在无法判断时干扰已经在工作的环境。
+ * 兼容性：marker 缺失时——
+ * - 若用户也没设置自定义路径（current === ''），视为老用户的合法 venv，
+ *   返回 true 不打扰。
+ * - 若用户设置了自定义路径（current !== ''），说明这是 marker 引入前建立
+ *   的旧 venv，绝非由当前自定义路径建立，返回 false 触发重建。
  */
-async function venvBuiltFromInterpreter(
-  venvDir: string,
-  interpreterPath: string,
+async function venvBaseInterpreterMatches(
+  currentCustomPath: string | null | undefined,
 ): Promise<boolean> {
+  const current = (currentCustomPath ?? '').trim()
   try {
-    const cfg = await readFile(join(venvDir, 'pyvenv.cfg'), 'utf8')
-    const homeMatch = cfg.match(/^\s*home\s*=\s*(.+)$/m)
-    if (!homeMatch) return true
-    const recordedHome = homeMatch[1].trim()
-    const expectedHome = path.dirname(interpreterPath)
-    return recordedHome === expectedHome
+    const recorded = (await readFile(baseInterpreterMarkerPath, 'utf8')).trim()
+    return recorded === current
   } catch {
-    return true
+    return current === ''
   }
 }
 
@@ -184,12 +187,14 @@ async function checkStatus(): Promise<EnvStatus> {
     config.pythonPath,
   )
 
-  // 仅当用户配置了自定义 Python 路径时才校验现有 venv 是否由该解释器创建。
-  // 未配置自定义路径的用户不进入此分支，effectiveVenvCreated === venvCreated，
-  // 保持原有行为不变。
+  // 校验现有 venv 是否与当前 config.pythonPath 配置一致：
+  // - 老用户从未设过自定义路径 → marker 不存在 + current 为空 → 视为匹配，
+  //   原行为完全不变。
+  // - 配置变更（设置/切换/清空自定义路径）→ marker 与 current 不一致 →
+  //   effectiveVenvCreated 置为 false，UI 提示需要重新 setup。
   let effectiveVenvCreated = venvCreated
-  if (venvCreated && config.pythonPath) {
-    const matches = await venvBuiltFromInterpreter(venvRoot, config.pythonPath)
+  if (venvCreated) {
+    const matches = await venvBaseInterpreterMatches(config.pythonPath)
     if (!matches) effectiveVenvCreated = false
   }
 
@@ -260,30 +265,29 @@ async function runSetup(): Promise<SetupResult> {
   let venvExists = await pathExists(venvPython)
   const config = await loadConfig()
 
-  // 仅在用户配置了自定义 Python 路径时才考虑重建：若现有 venv 不是由该解释器
-  // 创建，则删除以便后续步骤使用新解释器重建。未配置自定义路径时不动现有 venv。
-  if (venvExists && config.pythonPath) {
-    const matches = await venvBuiltFromInterpreter(venvRoot, config.pythonPath)
-    if (!matches) {
-      try {
-        await rm(venvRoot, { recursive: true, force: true })
-        // 同时清除 stamp，否则 Step 5 会因 digest 匹配而跳过依赖安装，
-        // 导致重建出的 venv 没有依赖。
-        await rm(installStampPath, { force: true })
-        venvExists = false
-        steps.push({
-          name: 'venv_rebuild',
-          ok: true,
-          message: '检测到自定义解释器变更，已移除旧虚拟环境以便重建',
-        })
-      } catch (err) {
-        steps.push({
-          name: 'venv_rebuild',
-          ok: false,
-          message: `移除旧虚拟环境失败: ${err}`,
-        })
-        return { success: false, steps }
-      }
+  // 校验现有 venv 是否与当前 config.pythonPath 配置一致（marker 机制详见
+  // venvBaseInterpreterMatches 注释）。不一致则删除以便后续步骤重建。
+  // 老用户从未设过自定义路径时此分支不会触发，原行为完全保留。
+  if (venvExists && !(await venvBaseInterpreterMatches(config.pythonPath))) {
+    try {
+      await rm(venvRoot, { recursive: true, force: true })
+      // 同时清除 stamp，否则 Step 5 会因 digest 匹配而跳过依赖安装，
+      // 导致重建出的 venv 没有依赖。
+      await rm(installStampPath, { force: true })
+      await rm(baseInterpreterMarkerPath, { force: true })
+      venvExists = false
+      steps.push({
+        name: 'venv_rebuild',
+        ok: true,
+        message: '检测到自定义解释器变更，已移除旧虚拟环境以便重建',
+      })
+    } catch (err) {
+      steps.push({
+        name: 'venv_rebuild',
+        ok: false,
+        message: `移除旧虚拟环境失败: ${err}`,
+      })
+      return { success: false, steps }
     }
   }
 
@@ -348,6 +352,17 @@ async function runSetup(): Promise<SetupResult> {
         name: 'venv',
         ok: false,
         message: `创建虚拟环境失败: ${venvResult.stderr}`,
+      })
+      return { success: false, steps }
+    }
+    // 记录本次创建 venv 时所用的自定义路径配置，供后续 checkStatus 比对。
+    try {
+      await writeFile(baseInterpreterMarkerPath, config.pythonPath ?? '', 'utf8')
+    } catch (err) {
+      steps.push({
+        name: 'venv',
+        ok: false,
+        message: `写入虚拟环境标记文件失败: ${err}`,
       })
       return { success: false, steps }
     }
