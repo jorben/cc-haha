@@ -986,7 +986,7 @@ export function ChatInput({ variant = 'default', compact = false }: ChatInputPro
         <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileSelect} />
 
         {!isMemberSession && (
-          <div className={useCompactControls ? 'mt-2 flex min-w-0 justify-center px-1' : 'mt-3 px-1'}>
+          <div className={useCompactControls ? 'mt-2 flex min-w-0 px-1' : 'mt-3 px-1'}>
             {messageCount > 0 ? (
               <ProjectContextChip
                 workDir={resolvedWorkDir}
