@@ -194,6 +194,8 @@ describe('EmptySession', () => {
     })
     expect(screen.getByTestId('model-selector')).toHaveAttribute('data-compact', 'true')
     expect(screen.getByRole('button', { name: 'Run' })).toHaveClass('h-11', 'w-11')
+    expect(screen.getByTestId('empty-session-composer-shell')).toHaveClass('px-3')
+    expect(screen.getByTestId('empty-session-composer-panel')).toHaveClass('rounded-2xl')
   })
 
   it('creates a session with the selected project and branch when submitted', async () => {

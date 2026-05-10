@@ -763,6 +763,57 @@ describe('WorkspacePanel', () => {
     expect(view.getByRole('button', { name: 'Collapse preview' })).toBeTruthy()
   })
 
+  it('keeps diff rows intrinsically wide so H5 users can scroll sideways', async () => {
+    const longDiffLine = '+const label = "this is a very long generated line that should not be compressed into the phone viewport";'
+
+    await setWorkspaceState((state) => ({
+      ...state,
+      panelBySession: {
+        ...state.panelBySession,
+        'session-wide-diff': {
+          isOpen: true,
+          activeView: 'changed',
+          hasUserSelectedView: true,
+        },
+      },
+      statusBySession: {
+        ...state.statusBySession,
+        'session-wide-diff': {
+          state: 'ok',
+          workDir: '/repo',
+          repoName: 'repo',
+          branch: 'main',
+          isGitRepo: true,
+          changedFiles: [],
+        },
+      },
+      previewTabsBySession: {
+        ...state.previewTabsBySession,
+        'session-wide-diff': [{
+          id: 'diff:wide.ts',
+          path: 'wide.ts',
+          kind: 'diff',
+          title: 'wide.ts',
+          diff: longDiffLine,
+          state: 'ok',
+        }],
+      },
+      activePreviewTabIdBySession: {
+        ...state.activePreviewTabIdBySession,
+        'session-wide-diff': 'diff:wide.ts',
+      },
+    }))
+
+    const view = await renderPanel('session-wide-diff')
+    const diffSurface = view.getByTestId('workspace-code')
+    const firstRow = diffSurface.querySelector('div')
+
+    expect(firstRow?.className).toContain('w-max')
+    expect(firstRow?.className).toContain('min-w-full')
+    expect(firstRow?.className).toContain('grid-cols-[48px_18px_max-content]')
+    expect(diffSurface.textContent).toContain(longDiffLine)
+  })
+
   it('can expand long file previews beyond the default rendered line cap', async () => {
     const longFile = Array.from({ length: 2300 }, (_, index) => `const line${index + 1} = ${index + 1}`).join('\n')
 

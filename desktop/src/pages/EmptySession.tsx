@@ -541,15 +541,19 @@ export function EmptySession() {
         </div>
       </div>
 
-      <div className={`absolute left-0 right-0 z-30 flex justify-center ${
+      <div
+        data-testid="empty-session-composer-shell"
+        className={`absolute left-0 right-0 z-30 flex justify-center ${
         isMobileComposer
-          ? 'bottom-0 px-0 pb-0'
+          ? 'bottom-0 px-3 pb-[calc(env(safe-area-inset-bottom)+10px)]'
           : 'bottom-4 px-8'
-      }`}>
+      }`}
+      >
         <div className={`flex w-full flex-col ${isMobileComposer ? 'max-w-none' : 'max-w-3xl'}`}>
           <div
+            data-testid="empty-session-composer-panel"
             className={`glass-panel relative flex flex-col gap-3 ${
-              isMobileComposer ? 'rounded-t-2xl rounded-b-none p-3 shadow-[0_-12px_36px_rgba(54,35,28,0.12)]' : 'rounded-t-xl rounded-b-none p-4'
+              isMobileComposer ? 'rounded-2xl p-3 shadow-[0_-12px_36px_rgba(54,35,28,0.12)]' : 'rounded-t-xl rounded-b-none p-4'
             }`}
             onDragOver={(event) => event.preventDefault()}
             onDrop={handleDrop}
