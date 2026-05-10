@@ -32,6 +32,7 @@ type SettingsStore = {
   webSearch: WebSearchSettings
   h5Access: H5AccessSettings
   h5AccessError: string | null
+  responseLanguage: string
   isLoading: boolean
   error: string | null
 
@@ -53,6 +54,7 @@ type SettingsStore = {
     allowedOrigins?: string[]
     publicBaseUrl?: string | null
   }) => Promise<void>
+  setResponseLanguage: (language: string) => Promise<void>
 }
 
 const DEFAULT_H5_ACCESS_SETTINGS: H5AccessSettings = {
@@ -76,6 +78,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   webSearch: { mode: 'auto', tavilyApiKey: '', braveApiKey: '' },
   h5Access: DEFAULT_H5_ACCESS_SETTINGS,
   h5AccessError: null,
+  responseLanguage: '',
   isLoading: false,
   error: null,
 
@@ -106,6 +109,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         webSearch: normalizeWebSearchSettings(userSettings.webSearch),
         h5Access: h5AccessResult.settings,
         h5AccessError: h5AccessResult.error,
+        responseLanguage: typeof userSettings.language === 'string' ? userSettings.language : '',
         isLoading: false,
         error: null,
       })
@@ -272,6 +276,16 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     } catch (error) {
       set({ h5AccessError: getErrorMessage(error, 'Failed to update H5 access settings.') })
       throw error
+    }
+  },
+
+  setResponseLanguage: async (language) => {
+    const prev = get().responseLanguage
+    set({ responseLanguage: language })
+    try {
+      await settingsApi.updateUser({ language: language || undefined })
+    } catch {
+      set({ responseLanguage: prev })
     }
   },
 }))

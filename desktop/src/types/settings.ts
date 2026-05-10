@@ -36,5 +36,6 @@ export type UserSettings = {
   skipWebFetchPreflight?: boolean
   desktopNotificationsEnabled?: boolean
   webSearch?: WebSearchSettings
+  language?: string
   [key: string]: unknown
 }

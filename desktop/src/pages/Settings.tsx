@@ -1368,6 +1368,8 @@ function GeneralSettings() {
     disableH5Access,
     regenerateH5AccessToken,
     updateH5AccessSettings,
+    responseLanguage,
+    setResponseLanguage,
   } = useSettingsStore()
   const t = useTranslation()
   const [webSearchDraft, setWebSearchDraft] = useState(webSearch)
@@ -1424,6 +1426,31 @@ function GeneralSettings() {
   const LANGUAGES: Array<{ value: Locale; label: string }> = [
     { value: 'en', label: 'English' },
     { value: 'zh', label: '中文' },
+  ]
+
+  const RESPONSE_LANGUAGES: Array<{ value: string; label: string }> = [
+    { value: '', label: t('settings.general.responseLangDefault') },
+    { value: 'english', label: 'English' },
+    { value: 'chinese', label: '中文 (Chinese)' },
+    { value: 'japanese', label: '日本語 (Japanese)' },
+    { value: 'korean', label: '한국어 (Korean)' },
+    { value: 'spanish', label: 'Español (Spanish)' },
+    { value: 'french', label: 'Français (French)' },
+    { value: 'german', label: 'Deutsch (German)' },
+    { value: 'portuguese', label: 'Português (Portuguese)' },
+    { value: 'italian', label: 'Italiano (Italian)' },
+    { value: 'russian', label: 'Русский (Russian)' },
+    { value: 'dutch', label: 'Nederlands (Dutch)' },
+    { value: 'polish', label: 'Polski (Polish)' },
+    { value: 'turkish', label: 'Türkçe (Turkish)' },
+    { value: 'hindi', label: 'हिन्दी (Hindi)' },
+    { value: 'indonesian', label: 'Bahasa Indonesia' },
+    { value: 'ukrainian', label: 'Українська (Ukrainian)' },
+    { value: 'greek', label: 'Ελληνικά (Greek)' },
+    { value: 'czech', label: 'Čeština (Czech)' },
+    { value: 'danish', label: 'Dansk (Danish)' },
+    { value: 'swedish', label: 'Svenska (Swedish)' },
+    { value: 'norwegian', label: 'Norsk (Norwegian)' },
   ]
 
   const THEMES: Array<{ value: ThemeMode; label: string }> = [
@@ -1575,6 +1602,21 @@ function GeneralSettings() {
             {label}
           </button>
         ))}
+      </div>
+
+      {/* Response Language */}
+      <h2 className="text-base font-semibold text-[var(--color-text-primary)] mb-1">{t('settings.general.responseLangTitle')}</h2>
+      <p className="text-sm text-[var(--color-text-tertiary)] mb-3">{t('settings.general.responseLangDescription')}</p>
+      <div className="flex gap-2 mb-8">
+        <select
+          value={responseLangDraft}
+          onChange={(e) => void setResponseLanguage(e.target.value)}
+          className="flex-1 px-3 py-2 text-sm rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-container-low)] text-[var(--color-text-primary)] focus:outline-none focus:border-[var(--color-brand)] transition-colors cursor-pointer"
+        >
+          {RESPONSE_LANGUAGES.map(({ value, label }) => (
+            <option key={value} value={value}>{label}</option>
+          ))}
+        </select>
       </div>
 
       {/* Effort Level */}
